@@ -1,0 +1,334 @@
+{
+ "name": "Client Project Intake & Instant Estimate",
+ "nodes": [
+  {
+   "parameters": {
+    "width": 780,
+    "height": 220,
+    "content": "## Client Project Intake & Instant Estimate\n**Form → lead score + estimate → saved → client sees estimate.**\n- Public form: `/form/project-inquiry`\n- Owner dashboard: `/webhook/leads-dashboard-CHANGE-ME-1` (keep this URL private)\n- Leads are stored in workflow static data (active/production runs only).\n- Edit rates, hours and scoring in **Score & Estimate** (RATE = 45 USD/h).\n- No API keys or credentials required."
+   },
+   "id": "cc12d322-6fd0-4d57-a2e9-e01eec4e9fd6",
+   "name": "About this workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -40,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "formTitle": "Start Your Project",
+    "formDescription": "Tell us about your project and get an instant ballpark estimate. We reply to every inquiry within one business day.",
+    "formFields": {
+     "values": [
+      {
+       "fieldLabel": "Full Name",
+       "placeholder": "Jane Smith",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Work Email",
+       "fieldType": "email",
+       "placeholder": "jane@company.com",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Company",
+       "placeholder": "Company name (optional)"
+      },
+      {
+       "fieldLabel": "Project Type",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "AI Agent / Chatbot"
+         },
+         {
+          "option": "Workflow Automation (n8n / Zapier / Make)"
+         },
+         {
+          "option": "RAG Knowledge Base"
+         },
+         {
+          "option": "Voice AI Agent"
+         },
+         {
+          "option": "Web Application"
+         },
+         {
+          "option": "Mobile App"
+         },
+         {
+          "option": "Other"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Key Features",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "CRM integration"
+         },
+         {
+          "option": "Payments"
+         },
+         {
+          "option": "User accounts & roles"
+         },
+         {
+          "option": "Admin dashboard"
+         },
+         {
+          "option": "Third-party API integrations"
+         },
+         {
+          "option": "AI / LLM features"
+         },
+         {
+          "option": "Reporting & analytics"
+         },
+         {
+          "option": "Multi-language"
+         }
+        ]
+       },
+       "multiselect": true
+      },
+      {
+       "fieldLabel": "Budget",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Under $500"
+         },
+         {
+          "option": "$500 – $2,000"
+         },
+         {
+          "option": "$2,000 – $5,000"
+         },
+         {
+          "option": "$5,000 – $15,000"
+         },
+         {
+          "option": "$15,000+"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Timeline",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "ASAP (under 2 weeks)"
+         },
+         {
+          "option": "Within 1 month"
+         },
+         {
+          "option": "2 – 3 months"
+         },
+         {
+          "option": "Flexible"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Project Description",
+       "fieldType": "textarea",
+       "placeholder": "What problem should this solve? Who will use it? Any tools it must connect to?",
+       "requiredField": true
+      }
+     ]
+    },
+    "options": {
+     "path": "project-inquiry",
+     "appendAttribution": false,
+     "buttonLabel": "Get my estimate"
+    }
+   },
+   "id": "f529ba41-01ef-4824-97d5-d035bc28dcdc",
+   "name": "Project Inquiry Form",
+   "type": "n8n-nodes-base.formTrigger",
+   "typeVersion": 2.2,
+   "position": [
+    0,
+    0
+   ],
+   "webhookId": "fdfbb31f-05f4-483f-8352-c587f8e38b76"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Score & Estimate\" (Run Once for All Items)\nconst RATE = 45; // USD per hour\n\nconst BASE_HOURS = {\n  'AI Agent / Chatbot': [30, 60],\n  'Workflow Automation (n8n / Zapier / Make)': [10, 30],\n  'RAG Knowledge Base': [25, 50],\n  'Voice AI Agent': [30, 60],\n  'Web Application': [60, 140],\n  'Mobile App': [80, 180],\n  'Other': [20, 60],\n};\n\nconst FEATURE_HOURS = {\n  'CRM integration': 8,\n  'Payments': 10,\n  'User accounts & roles': 12,\n  'Admin dashboard': 16,\n  'Third-party API integrations': 10,\n  'AI / LLM features': 14,\n  'Reporting & analytics': 12,\n  'Multi-language': 8,\n};\n\nconst BUDGET_SCORE = {\n  'Under $500': 0,\n  '$500 – $2,000': 15,\n  '$2,000 – $5,000': 25,\n  '$5,000 – $15,000': 35,\n  '$15,000+': 40,\n};\nconst BUDGET_MAX = {\n  'Under $500': 500,\n  '$500 – $2,000': 2000,\n  '$2,000 – $5,000': 5000,\n  '$5,000 – $15,000': 15000,\n  '$15,000+': Infinity,\n};\n\nconst TIMELINE_SCORE = {\n  'ASAP (under 2 weeks)': 20,\n  'Within 1 month': 20,\n  '2 – 3 months': 12,\n  'Flexible': 5,\n};\n\nconst toList = (v) => (Array.isArray(v) ? v : v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : []);\nconst roundTo = (n, step) => Math.round(n / step) * step;\nconst money = (n) => '$' + n.toLocaleString('en-US');\n\nconst out = [];\nfor (const item of $input.all()) {\n  const f = item.json;\n  const type = f['Project Type'] || 'Other';\n  const features = toList(f['Key Features']);\n  const budget = f['Budget'] || 'Under $500';\n  const timeline = f['Timeline'] || 'Flexible';\n  const description = String(f['Project Description'] || '').trim();\n  const email = String(f['Work Email'] || '').trim().toLowerCase();\n\n  const [minBase, maxBase] = BASE_HOURS[type] || BASE_HOURS['Other'];\n  const featureHours = features.reduce((sum, x) => sum + (FEATURE_HOURS[x] || 6), 0);\n  const rush = timeline.startsWith('ASAP') ? 1.15 : 1;\n  const hoursMin = Math.round((minBase + featureHours * 0.8) * rush);\n  const hoursMax = Math.round((maxBase + featureHours * 1.2) * rush);\n  const priceMin = roundTo(hoursMin * RATE, 50);\n  const priceMax = roundTo(hoursMax * RATE, 50);\n\n  // Lead score (0-100)\n  const freeDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'proton.me', 'protonmail.com'];\n  const domain = email.split('@')[1] || '';\n  let score = 0;\n  score += BUDGET_SCORE[budget] ?? 0;\n  score += TIMELINE_SCORE[timeline] ?? 5;\n  score += description.length >= 300 ? 20 : description.length >= 120 ? 12 : description.length >= 40 ? 6 : 0;\n  score += domain && !freeDomains.includes(domain) ? 10 : 0;\n  score += f['Company'] ? 5 : 0;\n  score += features.length >= 2 ? 5 : 0;\n  score = Math.min(100, score);\n\n  const budgetFits = (BUDGET_MAX[budget] ?? 0) >= priceMin;\n  const tier = score >= 70 ? 'Hot' : score >= 45 ? 'Warm' : 'Cold';\n  const nextStep =\n    tier === 'Hot'\n      ? 'Reply within 2 hours and offer a discovery call.'\n      : tier === 'Warm'\n      ? 'Reply same day with 2-3 clarifying questions.'\n      : 'Send the standard info pack and packaged services.';\n\n  out.push({\n    json: {\n      id: 'L-' + Date.now().toString(36).toUpperCase(),\n      submittedAt: new Date().toISOString(),\n      name: f['Full Name'] || '',\n      email,\n      company: f['Company'] || '',\n      projectType: type,\n      features,\n      budget,\n      timeline,\n      description,\n      hoursMin,\n      hoursMax,\n      priceMin,\n      priceMax,\n      priceRange: `${money(priceMin)} – ${money(priceMax)}`,\n      budgetFits,\n      score,\n      tier,\n      nextStep,\n    },\n  });\n}\nreturn out;\n"
+   },
+   "id": "845a6611-c02a-452d-b7a5-3446e8ab68fe",
+   "name": "Score & Estimate",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Save to Lead Store\" (Run Once for All Items)\n// Stores leads in this workflow's static data (persists for production/active runs only).\nconst store = $getWorkflowStaticData('global');\nstore.leads = store.leads || [];\nfor (const item of $input.all()) {\n  store.leads.unshift(item.json);\n}\nstore.leads = store.leads.slice(0, 500); // keep the latest 500\nreturn $input.all();\n"
+   },
+   "id": "dcf48ffd-cc43-4c54-be8e-436ff006659e",
+   "name": "Save to Lead Store",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "completion",
+    "completionTitle": "=Thanks, {{ $json.name.split(' ')[0] }}! Here's your ballpark estimate",
+    "completionMessage": "=Project: {{ $json.projectType }}\nEstimated effort: {{ $json.hoursMin }}–{{ $json.hoursMax }} hours\nEstimated investment: {{ $json.priceRange }}\n\nThis is an automated range based on your answers. We'll review your details and reply to {{ $json.email }} within one business day with next steps.\n\nReference: {{ $json.id }}"
+   },
+   "id": "b2cf59c8-05ca-4604-9979-7ebe3db47c1b",
+   "name": "Show Estimate",
+   "type": "n8n-nodes-base.form",
+   "typeVersion": 1,
+   "position": [
+    720,
+    0
+   ],
+   "webhookId": "d0cc068c-22d1-48b0-834d-32e79d56e5d5"
+  },
+  {
+   "parameters": {
+    "path": "leads-dashboard-CHANGE-ME-1",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "7bfce0e2-b605-4576-974e-de359ed9e0a9",
+   "name": "Lead Dashboard (GET)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    260
+   ],
+   "webhookId": "a27c65c2-988b-4177-a126-8d97d0fbe6be"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Build Dashboard HTML\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nconst leads = store.leads || [];\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst count = (t) => leads.filter((l) => l.tier === t).length;\nconst pipeline = leads.reduce((s, l) => s + (l.priceMax || 0), 0);\n\nconst rows = leads\n  .map(\n    (l) => `<tr>\n  <td>${esc(new Date(l.submittedAt).toISOString().slice(0, 16).replace('T', ' '))}</td>\n  <td><strong>${esc(l.name)}</strong><br><span class=\"muted\">${esc(l.company)}</span></td>\n  <td>${esc(l.email)}</td>\n  <td>${esc(l.projectType)}</td>\n  <td>${esc(l.budget)}${l.budgetFits ? '' : ' <span class=\"warn\">below estimate</span>'}</td>\n  <td>${esc(l.priceRange)}<br><span class=\"muted\">${l.hoursMin}–${l.hoursMax} h</span></td>\n  <td><span class=\"tag ${esc(l.tier).toLowerCase()}\">${esc(l.tier)} · ${l.score}</span></td>\n  <td class=\"muted\">${esc(l.nextStep)}</td>\n</tr>`\n  )\n  .join('');\n\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\">\n<title>Lead Dashboard</title>\n<style>\n:root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--hot:#dc2626;--warm:#d97706;--cold:#2563eb}\n@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaed;--muted:#9aa1ad;--line:#2a2f3a}}\n*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}\nmain{max-width:1200px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}\n.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:18px 0}\n.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}.kpi b{display:block;font-size:22px}\n.wrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}\ntable{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}\nth{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}.muted{color:var(--muted);font-size:12px}\n.tag{padding:2px 8px;border-radius:999px;font-weight:600;font-size:12px;color:#fff}.hot{background:var(--hot)}.warm{background:var(--warm)}.cold{background:var(--cold)}\n.warn{color:var(--warm);font-size:12px}.empty{padding:40px;text-align:center;color:var(--muted)}\n</style></head><body><main>\n<h1>Project Inquiry Dashboard</h1><div class=\"muted\">Auto-scored leads from the intake form · updated ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))} UTC</div>\n<section class=\"kpis\">\n<div class=\"kpi\"><span class=\"muted\">Total inquiries</span><b>${leads.length}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Hot</span><b style=\"color:var(--hot)\">${count('Hot')}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Warm</span><b style=\"color:var(--warm)\">${count('Warm')}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Cold</span><b style=\"color:var(--cold)\">${count('Cold')}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Pipeline (max estimate)</span><b>$${pipeline.toLocaleString('en-US')}</b></div>\n</section>\n<div class=\"wrap\">${\n  leads.length\n    ? `<table><thead><tr><th>Received (UTC)</th><th>Client</th><th>Email</th><th>Project</th><th>Budget</th><th>Estimate</th><th>Score</th><th>Next step</th></tr></thead><tbody>${rows}</tbody></table>`\n    : '<div class=\"empty\">No inquiries yet. Submit the intake form to see leads appear here.</div>'\n}</div></main></body></html>`;\n\nreturn [{ json: { html } }];\n"
+   },
+   "id": "dee63bae-d0a0-41a1-800f-3610e473a47b",
+   "name": "Build Dashboard HTML",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.html }}",
+    "options": {
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=utf-8"
+       }
+      ]
+     }
+    }
+   },
+   "id": "6e56ec77-2687-4921-bc47-c588cb657748",
+   "name": "Return Dashboard",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    480,
+    260
+   ]
+  }
+ ],
+ "connections": {
+  "Project Inquiry Form": {
+   "main": [
+    [
+     {
+      "node": "Score & Estimate",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Score & Estimate": {
+   "main": [
+    [
+     {
+      "node": "Save to Lead Store",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save to Lead Store": {
+   "main": [
+    [
+     {
+      "node": "Show Estimate",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Lead Dashboard (GET)": {
+   "main": [
+    [
+     {
+      "node": "Build Dashboard HTML",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Dashboard HTML": {
+   "main": [
+    [
+     {
+      "node": "Return Dashboard",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true
+ },
+ "active": false,
+ "meta": {
+  "instanceId": "demo"
+ },
+ "tags": []
+}

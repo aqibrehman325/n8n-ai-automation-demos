@@ -1,0 +1,297 @@
+{
+ "name": "Proposal Generator",
+ "nodes": [
+  {
+   "parameters": {
+    "width": 820,
+    "height": 230,
+    "content": "## Proposal Generator\n- Internal form (keep private): `/form/proposal-builder-CHANGE-ME-3`\n- Prices come from the service catalogue in **Price the Proposal** (same packages as the Upwork catalogue).\n- After submitting you are redirected to a printable proposal: `/webhook/proposal?t=<token>` — share that link with the client or Print → Save as PDF.\n- Stored in workflow static data. No API keys or credentials required."
+   },
+   "id": "4202aba6-4621-417d-92c4-3a2e254f959a",
+   "name": "About this workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -40,
+    -280
+   ]
+  },
+  {
+   "parameters": {
+    "formTitle": "Create a Client Proposal",
+    "formDescription": "Internal tool: pick a service package and add-ons to generate a priced, printable proposal.",
+    "formFields": {
+     "values": [
+      {
+       "fieldLabel": "Client Name",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Client Email",
+       "fieldType": "email",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Client Company"
+      },
+      {
+       "fieldLabel": "Project Title",
+       "placeholder": "e.g. Zapier to self-hosted n8n migration",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Service",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Self-Hosted n8n Setup & Server Optimisation"
+         },
+         {
+          "option": "Custom AI Agent with Tool Calling"
+         },
+         {
+          "option": "RAG Knowledge Base with Vector Search"
+         },
+         {
+          "option": "PDF & Invoice Data Extraction Pipeline"
+         },
+         {
+          "option": "AI Voice Agent (Retell AI / Vapi)"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Package",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Starter"
+         },
+         {
+          "option": "Standard"
+         },
+         {
+          "option": "Advanced"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Add-ons",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "30-day priority support (+$99)"
+         },
+         {
+          "option": "Extra integration or workflow (+$75)"
+         },
+         {
+          "option": "Team training session, 1 hour (+$60)"
+         },
+         {
+          "option": "Technical documentation pack (+$80)"
+         },
+         {
+          "option": "Rush delivery (+25%, about 40% faster)"
+         }
+        ]
+       },
+       "multiselect": true
+      },
+      {
+       "fieldLabel": "Discount %",
+       "fieldType": "number",
+       "placeholder": "0"
+      },
+      {
+       "fieldLabel": "Notes for the client",
+       "fieldType": "textarea"
+      }
+     ]
+    },
+    "options": {
+     "path": "proposal-builder-CHANGE-ME-3",
+     "appendAttribution": false,
+     "buttonLabel": "Generate proposal"
+    }
+   },
+   "id": "16931563-d410-4290-94f2-cc5339cc960c",
+   "name": "Proposal Builder Form",
+   "type": "n8n-nodes-base.formTrigger",
+   "typeVersion": 2.2,
+   "position": [
+    0,
+    0
+   ],
+   "webhookId": "4532d430-6945-411c-b61a-6152ad8e1c36"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Price the Proposal\" (Run Once for All Items)\nconst COMPANY = 'RixDigi';\nconst PREPARED_BY = 'Aqib ur Rehman';\nconst VALID_DAYS = 14;\n\n// Service catalogue (matches the Upwork project catalogue)\nconst SERVICES = {\n  'Self-Hosted n8n Setup & Server Optimisation': {\n    Starter: { price: 100, days: 2, scope: ['n8n on Ubuntu VPS with Docker Compose', 'PostgreSQL database and Caddy SSL', 'Webhook and credential testing'] },\n    Standard: { price: 250, days: 4, scope: ['Everything in Starter', '2 API/CRM integration workflows', 'Error-notification alerts'] },\n    Advanced: { price: 500, days: 7, scope: ['Everything in Standard', 'Redis queue mode with workers', 'Automated backups and restore runbook'] },\n  },\n  'Custom AI Agent with Tool Calling': {\n    Starter: { price: 150, days: 2, scope: ['AI agent with 1 external API tool', 'Custom system prompt and guardrails', 'Deployment to one channel'] },\n    Standard: { price: 350, days: 4, scope: ['Multi-step agent with persistent memory', 'CRM lookup tool', 'Email/Slack alerts'] },\n    Advanced: { price: 700, days: 7, scope: ['Multi-agent orchestration', 'Human-in-the-loop approvals', 'Custom API tool integrations'] },\n  },\n  'RAG Knowledge Base with Vector Search': {\n    Starter: { price: 200, days: 3, scope: ['Ingest up to 25 documents', 'Vector index (Qdrant/pgvector)', 'Basic Q&A workflow with citations'] },\n    Standard: { price: 450, days: 5, scope: ['Hybrid search with re-ranking', 'Automated Drive/Notion sync', 'Source citations in every answer'] },\n    Advanced: { price: 900, days: 7, scope: ['Multi-source ingestion', 'Role-based access control', 'Slack/Teams and web chat UI'] },\n  },\n  'PDF & Invoice Data Extraction Pipeline': {\n    Starter: { price: 120, days: 2, scope: ['1 document type', 'Structured extraction to Google Sheets/Airtable', 'Validation rules'] },\n    Standard: { price: 300, days: 4, scope: ['Multi-page PDFs and nested tables', 'Sync to your CRM/database', 'Duplicate detection'] },\n    Advanced: { price: 600, days: 7, scope: ['Email-triggered ingestion', 'Xero/ERP sync', 'Human review queue'] },\n  },\n  'AI Voice Agent (Retell AI / Vapi)': {\n    Starter: { price: 250, days: 3, scope: ['1 inbound voice agent', 'Custom call script and FAQs', 'Phone number connection'] },\n    Standard: { price: 500, days: 5, scope: ['Live calendar booking', 'CRM sync', 'SMS follow-ups'] },\n    Advanced: { price: 950, days: 8, scope: ['Database lookups during calls', 'Live call transfer', 'Custom webhooks'] },\n  },\n};\nconst ADDONS = {\n  '30-day priority support (+$99)': { price: 99, days: 0 },\n  'Extra integration or workflow (+$75)': { price: 75, days: 2 },\n  'Team training session, 1 hour (+$60)': { price: 60, days: 0 },\n  'Technical documentation pack (+$80)': { price: 80, days: 1 },\n};\nconst RUSH = 'Rush delivery (+25%, about 40% faster)';\n\nconst toList = (v) => (Array.isArray(v) ? v : v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : []);\nconst token = () => Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 8)).join('');\nconst addDays = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\n\nconst out = [];\nfor (const item of $input.all()) {\n  const f = item.json;\n  const serviceName = f['Service'] in SERVICES ? f['Service'] : Object.keys(SERVICES)[0];\n  const tierName = ['Starter', 'Standard', 'Advanced'].includes(f['Package']) ? f['Package'] : 'Standard';\n  const tier = SERVICES[serviceName][tierName];\n  const extras = toList(f['Add-ons']);\n\n  const lines = [{ description: `${serviceName} — ${tierName} package`, detail: tier.scope.join(' · '), amount: tier.price }];\n  let days = tier.days;\n  for (const a of extras) {\n    if (ADDONS[a]) {\n      lines.push({ description: a.replace(/\\s*\\(\\+\\$\\d+\\)$/, ''), detail: '', amount: ADDONS[a].price });\n      days += ADDONS[a].days;\n    }\n  }\n  let subtotal = lines.reduce((s, l) => s + l.amount, 0);\n  if (extras.includes(RUSH)) {\n    const rush = Math.round(subtotal * 0.25);\n    lines.push({ description: 'Rush delivery', detail: 'Priority scheduling', amount: rush });\n    subtotal += rush;\n    days = Math.max(1, Math.ceil(days * 0.6));\n  }\n  const discountPct = Math.min(30, Math.max(0, Number(f['Discount %']) || 0));\n  const discount = Math.round((subtotal * discountPct) / 100);\n  const total = subtotal - discount;\n\n  const now = new Date();\n  const number = `Q-${now.toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 9000 + 1000)}`;\n  out.push({\n    json: {\n      token: token(),\n      number,\n      createdAt: now.toISOString(),\n      validUntil: addDays(VALID_DAYS),\n      company: COMPANY,\n      preparedBy: PREPARED_BY,\n      client: {\n        name: String(f['Client Name'] || '').trim(),\n        email: String(f['Client Email'] || '').trim(),\n        company: String(f['Client Company'] || '').trim(),\n      },\n      title: String(f['Project Title'] || serviceName).trim(),\n      service: serviceName,\n      package: tierName,\n      scope: tier.scope,\n      lines,\n      subtotal,\n      discountPct,\n      discount,\n      total,\n      deliveryDays: days,\n      notes: String(f['Notes for the client'] || '').trim(),\n      paymentTerms: '50% to start, 50% on delivery. Paid via Upwork milestones or bank transfer.',\n    },\n  });\n}\nreturn out;\n"
+   },
+   "id": "cb061c8c-6b25-4607-b697-6fb20315d48b",
+   "name": "Price the Proposal",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Save Proposal\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nstore.quotes = store.quotes || {};\nstore.order = store.order || [];\nfor (const item of $input.all()) {\n  store.quotes[item.json.token] = item.json;\n  store.order.unshift(item.json.token);\n}\n// keep the latest 300 proposals\nfor (const t of store.order.slice(300)) delete store.quotes[t];\nstore.order = store.order.slice(0, 300);\nreturn $input.all();\n"
+   },
+   "id": "e24e1810-bf6d-4148-9bc2-b9680d19558e",
+   "name": "Save Proposal",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "completion",
+    "respondWith": "redirect",
+    "redirectUrl": "=/webhook/proposal?t={{ $json.token }}"
+   },
+   "id": "8e3595ec-5add-413a-be6a-cab1e43e4952",
+   "name": "Open Proposal",
+   "type": "n8n-nodes-base.form",
+   "typeVersion": 1,
+   "position": [
+    720,
+    0
+   ],
+   "webhookId": "6cb40a31-c466-4a53-b13c-5c3c1f553a61"
+  },
+  {
+   "parameters": {
+    "path": "proposal",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "9c60ecf4-53b2-477a-8c92-731aa8ee0b54",
+   "name": "Proposal Page (GET)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    260
+   ],
+   "webhookId": "9e446ff4-f5d4-442b-a53e-6bdb4708c08a"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Render Proposal\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nconst q = $input.first().json.query || {};\nconst p = (store.quotes || {})[String(q.t || '')];\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst money = (n) => '$' + Number(n).toLocaleString('en-US');\nconst fmt = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });\n\nlet inner;\nif (!p) {\n  inner = '<div class=\"sheet\"><h1>Proposal not found</h1><p class=\"muted\">This link is invalid or the proposal has expired.</p></div>';\n} else {\n  const rows = p.lines\n    .map((l) => `<tr><td><strong>${esc(l.description)}</strong>${l.detail ? `<div class=\"muted\">${esc(l.detail)}</div>` : ''}</td><td class=\"num\">${money(l.amount)}</td></tr>`)\n    .join('');\n  inner = `<div class=\"toolbar\"><button onclick=\"window.print()\">Print / Save as PDF</button></div>\n<article class=\"sheet\">\n<header class=\"top\"><div><div class=\"brand\">${esc(p.company)}</div><div class=\"muted\">AI Agents · Automation · Voice AI</div></div>\n<div class=\"meta\"><div><span>Proposal</span><b>${esc(p.number)}</b></div><div><span>Date</span><b>${esc(fmt(p.createdAt))}</b></div><div><span>Valid until</span><b>${esc(fmt(p.validUntil))}</b></div></div></header>\n<section class=\"parties\"><div><span class=\"label\">Prepared for</span><b>${esc(p.client.name)}</b>${p.client.company ? `<div>${esc(p.client.company)}</div>` : ''}<div class=\"muted\">${esc(p.client.email)}</div></div>\n<div><span class=\"label\">Prepared by</span><b>${esc(p.preparedBy)}</b><div>${esc(p.company)}</div></div></section>\n<h1>${esc(p.title)}</h1>\n<h2>Scope of work</h2>\n<ul>${p.scope.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>\n<h2>Investment</h2>\n<table><thead><tr><th>Item</th><th class=\"num\">Amount</th></tr></thead><tbody>${rows}</tbody>\n<tfoot><tr><td>Subtotal</td><td class=\"num\">${money(p.subtotal)}</td></tr>\n${p.discount ? `<tr><td>Discount (${p.discountPct}%)</td><td class=\"num\">−${money(p.discount)}</td></tr>` : ''}\n<tr class=\"total\"><td>Total</td><td class=\"num\">${money(p.total)}</td></tr></tfoot></table>\n<section class=\"grid\"><div><span class=\"label\">Estimated delivery</span><b>${p.deliveryDays} working days</b></div><div><span class=\"label\">Payment terms</span><b>${esc(p.paymentTerms)}</b></div></section>\n${p.notes ? `<h2>Notes</h2><p>${esc(p.notes).replace(/\\n/g, '<br>')}</p>` : ''}\n<h2>Next steps</h2>\n<ol><li>Reply to confirm the scope, or tell us what to adjust.</li><li>We set up the first milestone and schedule a kickoff call.</li><li>You get progress updates at every step until handover.</li></ol>\n<footer class=\"muted\">This proposal was generated automatically from our service catalogue and is valid until ${esc(fmt(p.validUntil))}.</footer>\n</article>`;\n}\n\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\"><title>${p ? esc(p.number + ' · ' + p.title) : 'Proposal'}</title>\n<style>\n:root{--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--accent:#4f46e5;--bg:#eef0f4}\n*{box-sizing:border-box}body{margin:0;font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}\n.toolbar{max-width:820px;margin:20px auto 0;padding:0 16px;text-align:right}\nbutton{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}\n.sheet{max-width:820px;margin:12px auto 32px;background:#fff;padding:44px 48px;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.06)}\n@media(max-width:640px){.sheet{padding:24px 18px}}\n.top{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;border-bottom:3px solid var(--accent);padding-bottom:18px}\n.brand{font-size:24px;font-weight:800;color:var(--accent);letter-spacing:-.02em}\n.meta{display:flex;gap:22px;flex-wrap:wrap}.meta span,.label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}\n.parties{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0}@media(max-width:640px){.parties{grid-template-columns:1fr}}\nh1{font-size:22px;margin:8px 0 4px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:26px 0 8px}\nul,ol{margin:0;padding-left:20px}li{margin:3px 0}.muted{color:var(--muted);font-size:12px}\ntable{width:100%;border-collapse:collapse}th,td{padding:10px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}\nth{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.num{text-align:right;white-space:nowrap}\ntfoot td{border:0;padding:6px 0}tfoot .total td{font-size:18px;font-weight:800;border-top:2px solid var(--ink);padding-top:10px}\n.grid{display:grid;grid-template-columns:1fr 2fr;gap:18px;margin-top:22px}@media(max-width:640px){.grid{grid-template-columns:1fr}}\nfooter{margin-top:30px;border-top:1px solid var(--line);padding-top:12px}\n@media print{body{background:#fff}.toolbar{display:none}.sheet{box-shadow:none;margin:0;max-width:none;padding:0}@page{size:A4;margin:18mm}}\n</style></head><body>${inner}</body></html>`;\nreturn [{ json: { html, found: !!p } }];\n"
+   },
+   "id": "548736dd-26d8-43f9-92e5-789e448f6580",
+   "name": "Render Proposal",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.html }}",
+    "options": {
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=utf-8"
+       }
+      ]
+     }
+    }
+   },
+   "id": "9f0e158b-8036-49ee-bb8b-a18ff7e45257",
+   "name": "Return Proposal",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    480,
+    260
+   ]
+  }
+ ],
+ "connections": {
+  "Proposal Builder Form": {
+   "main": [
+    [
+     {
+      "node": "Price the Proposal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Price the Proposal": {
+   "main": [
+    [
+     {
+      "node": "Save Proposal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Proposal": {
+   "main": [
+    [
+     {
+      "node": "Open Proposal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Proposal Page (GET)": {
+   "main": [
+    [
+     {
+      "node": "Render Proposal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Render Proposal": {
+   "main": [
+    [
+     {
+      "node": "Return Proposal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true
+ },
+ "active": false,
+ "meta": {
+  "instanceId": "demo"
+ },
+ "tags": []
+}

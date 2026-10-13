@@ -1,0 +1,174 @@
+{
+ "name": "Website Uptime Monitor + Status Page",
+ "nodes": [
+  {
+   "parameters": {
+    "width": 700,
+    "height": 200,
+    "content": "## Website Uptime Monitor + Status Page\n- Checks every site in **Check Sites** every 5 minutes (edit the SITES list).\n- Keeps 24h of history per site (status code, response time, up/slow/down).\n- Public status page: `/webhook/status`\n- No API keys or credentials required. Add a Telegram/Slack/email node after **Record Results** to alert on `stateChanges`."
+   },
+   "id": "6f66634c-ae35-4d5b-9e3a-76596dde5d70",
+   "name": "About this workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -40,
+    -240
+   ]
+  },
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "minutes",
+       "minutesInterval": 5
+      }
+     ]
+    }
+   },
+   "id": "92a72130-f6a8-4ac4-a245-9b3ba92e4139",
+   "name": "Every 5 Minutes",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Check Sites\" (Run Once for All Items)\n// Edit this list to monitor your own / client websites.\nconst SITES = [\n  { name: 'n8n (RixGPT)', url: 'https://n8n.rixgpt.com/healthz' },\n  { name: 'RixGPT', url: 'https://rixgpt.com' },\n  { name: 'GitHub', url: 'https://github.com' },\n];\nconst TIMEOUT_MS = 10000;\nconst SLOW_MS = 2000;\n\nconst results = [];\nfor (const site of SITES) {\n  const started = Date.now();\n  let statusCode = 0;\n  let error = '';\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: site.url,\n      timeout: TIMEOUT_MS,\n      returnFullResponse: true,\n      ignoreHttpStatusErrors: true,\n      json: false,\n    });\n    statusCode = res.statusCode;\n  } catch (e) {\n    error = (e && (e.code || e.message)) ? String(e.code || e.message).slice(0, 120) : 'request failed';\n  }\n  const ms = Date.now() - started;\n  const up = statusCode >= 200 && statusCode < 400;\n  results.push({\n    json: {\n      name: site.name,\n      url: site.url,\n      checkedAt: new Date().toISOString(),\n      statusCode,\n      ms,\n      up,\n      state: !up ? 'down' : ms > SLOW_MS ? 'slow' : 'up',\n      error,\n    },\n  });\n}\nreturn results;\n"
+   },
+   "id": "4de66aaf-5c0b-4b47-a9a9-cf36b54a8dab",
+   "name": "Check Sites",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Record Results\" (Run Once for All Items)\n// Keeps the last 24h of checks per site (288 x 5-minute checks) in workflow static data.\nconst KEEP = 288;\nconst store = $getWorkflowStaticData('global');\nstore.sites = store.sites || {};\nconst changes = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  const s = (store.sites[r.url] = store.sites[r.url] || { name: r.name, url: r.url, checks: [], lastState: null, since: r.checkedAt });\n  s.name = r.name;\n  s.checks.push({ t: r.checkedAt, c: r.statusCode, ms: r.ms, up: r.up });\n  if (s.checks.length > KEEP) s.checks = s.checks.slice(-KEEP);\n  if (s.lastState !== r.state) {\n    if (s.lastState !== null) changes.push({ name: r.name, from: s.lastState, to: r.state, at: r.checkedAt });\n    s.lastState = r.state;\n    s.since = r.checkedAt;\n  }\n  s.lastError = r.error || '';\n}\nstore.incidents = [...changes, ...(store.incidents || [])].slice(0, 50);\nreturn [{ json: { checked: $input.all().length, stateChanges: changes } }];\n"
+   },
+   "id": "c7b30692-8f50-4250-9dbc-4612953ea6b9",
+   "name": "Record Results",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "path": "status",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "33ce3eda-8f59-4ec4-a1d2-86dfe147a01f",
+   "name": "Status Page (GET)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    260
+   ],
+   "webhookId": "c77362f7-9f9d-4d8a-a043-4cb47b4a2852"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Build Status Page\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nconst sites = Object.values(store.sites || {});\nconst incidents = store.incidents || [];\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = (iso) => (iso ? new Date(iso).toISOString().slice(0, 16).replace('T', ' ') : '—');\nconst avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);\n\nconst allUp = sites.length && sites.every((s) => s.lastState !== 'down');\nconst cards = sites\n  .map((s) => {\n    const checks = s.checks || [];\n    const upPct = checks.length ? ((checks.filter((c) => c.up).length / checks.length) * 100).toFixed(2) : '—';\n    const last = checks[checks.length - 1] || {};\n    const bars = checks\n      .slice(-60)\n      .map((c) => `<i class=\"${c.up ? (c.ms > 2000 ? 'slow' : 'up') : 'down'}\" title=\"${esc(fmt(c.t))} · ${c.c || 'ERR'} · ${c.ms} ms\"></i>`)\n      .join('');\n    return `<article class=\"card\">\n  <header><span class=\"dot ${esc(s.lastState)}\"></span><h2>${esc(s.name)}</h2><span class=\"state ${esc(s.lastState)}\">${esc(s.lastState || 'pending')}</span></header>\n  <div class=\"muted\">${esc(s.url)}</div>\n  <div class=\"bars\">${bars || '<span class=\"muted\">Waiting for first check…</span>'}</div>\n  <dl><div><dt>Uptime (24h)</dt><dd>${upPct}%</dd></div><div><dt>Avg response</dt><dd>${avg(checks.map((c) => c.ms))} ms</dd></div>\n  <div><dt>Last check</dt><dd>${esc(fmt(last.t))} · ${last.c || 'ERR'}</dd></div><div><dt>In this state since</dt><dd>${esc(fmt(s.since))}</dd></div></dl>\n  ${s.lastError ? `<div class=\"err\">${esc(s.lastError)}</div>` : ''}\n</article>`;\n  })\n  .join('');\n\nconst incidentRows = incidents\n  .map((i) => `<li><span class=\"muted\">${esc(fmt(i.at))} UTC</span> — <strong>${esc(i.name)}</strong> changed from ${esc(i.from)} to <span class=\"state ${esc(i.to)}\">${esc(i.to)}</span></li>`)\n  .join('');\n\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"refresh\" content=\"60\">\n<title>System Status</title>\n<style>\n:root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--up:#16a34a;--slow:#d97706;--down:#dc2626}\n@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaed;--muted:#9aa1ad;--line:#2a2f3a}}\n*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}\nmain{max-width:960px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0}\n.banner{margin:16px 0;padding:14px 16px;border-radius:10px;color:#fff;font-weight:600;background:${allUp ? 'var(--up)' : 'var(--down)'}}\n.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}\n.card header{display:flex;align-items:center;gap:8px}.card h2{font-size:16px;margin:0;flex:1}\n.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}.dot.up{background:var(--up)}.dot.slow{background:var(--slow)}.dot.down{background:var(--down)}\n.state{font-size:12px;font-weight:600;text-transform:uppercase}.state.up{color:var(--up)}.state.slow{color:var(--slow)}.state.down{color:var(--down)}\n.bars{display:flex;gap:2px;margin:12px 0;height:28px;align-items:stretch}.bars i{flex:1;border-radius:2px;background:var(--up)}.bars i.slow{background:var(--slow)}.bars i.down{background:var(--down)}\ndl{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:0}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:600}\n.muted{color:var(--muted);font-size:12px}.err{margin-top:8px;color:var(--down);font-size:12px}\nul{padding-left:18px}li{margin:4px 0}\n</style></head><body><main>\n<h1>System Status</h1><div class=\"muted\">Checked every 5 minutes by n8n · page refreshes every 60s · ${esc(fmt(new Date().toISOString()))} UTC</div>\n<div class=\"banner\">${sites.length ? (allUp ? 'All systems operational' : 'Some systems are experiencing issues') : 'Monitoring starts after the first scheduled check'}</div>\n${cards}\n<h2 style=\"font-size:16px\">Recent incidents</h2>${incidentRows ? `<ul>${incidentRows}</ul>` : '<p class=\"muted\">No state changes recorded.</p>'}\n</main></body></html>`;\n\nreturn [{ json: { html } }];\n"
+   },
+   "id": "a3ea8140-3bc7-4e01-bc65-b46b36e1c214",
+   "name": "Build Status Page",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.html }}",
+    "options": {
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=utf-8"
+       }
+      ]
+     }
+    }
+   },
+   "id": "5e2ab365-09b1-4884-886f-30245609f584",
+   "name": "Return Status Page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    480,
+    260
+   ]
+  }
+ ],
+ "connections": {
+  "Every 5 Minutes": {
+   "main": [
+    [
+     {
+      "node": "Check Sites",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check Sites": {
+   "main": [
+    [
+     {
+      "node": "Record Results",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Status Page (GET)": {
+   "main": [
+    [
+     {
+      "node": "Build Status Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Status Page": {
+   "main": [
+    [
+     {
+      "node": "Return Status Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true
+ },
+ "active": false,
+ "meta": {
+  "instanceId": "demo"
+ },
+ "tags": []
+}

@@ -1,0 +1,175 @@
+{
+ "name": "GitHub Activity Digest",
+ "nodes": [
+  {
+   "parameters": {
+    "width": 820,
+    "height": 230,
+    "content": "## GitHub Activity Digest\n- Runs daily at 09:00 PKT (workflow timezone Asia/Karachi) and on demand from the page.\n- Uses the public GitHub REST API without a token (60 requests/hour; each refresh uses 4–6).\n- Digest page: `/webhook/github-digest` (add `?refresh=1` to refresh; throttled to once per 2 min).\n- Edit `USER` and `WATCH` in both **Fetch** nodes. No API keys or credentials required."
+   },
+   "id": "0b356aa0-15e7-4b35-967d-f51286c2fcdb",
+   "name": "About this workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -40,
+    -280
+   ]
+  },
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "days",
+       "triggerAtHour": 9
+      }
+     ]
+    }
+   },
+   "id": "79f2bb16-fc8b-4909-b5a1-3d2e282a3b1c",
+   "name": "Daily 09:00 PKT",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Fetch GitHub Activity\" (Run Once for All Items)\n// Uses the public GitHub REST API without a token (60 requests/hour limit — this uses 4-6 per run).\nconst USER = 'aqibrehman325';\nconst WATCH = ['n8n-io/n8n']; // public repos to follow (releases + latest commits)\nconst MAX_AGE_MIN = 30; // webhook path: reuse cached digest if younger than this\n\nconst store = $getWorkflowStaticData('global');\nconst first = $input.first().json || {};\nconst fromWebhook = !!first.headers;\nconst ageMin = store.digest ? (Date.now() - Date.parse(store.digest.fetchedAt)) / 60000 : Infinity;\n// Manual refresh is throttled to once every 2 minutes to protect the API rate limit\nconst force = !fromWebhook || (first.query && first.query.refresh === '1' && ageMin > 2);\n\nif (!force && ageMin < MAX_AGE_MIN) {\n  return [{ json: { cached: true } }];\n}\n\nconst gh = async (path) => {\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://api.github.com' + path,\n      headers: { 'User-Agent': 'n8n-github-digest', Accept: 'application/vnd.github+json' },\n      json: true,\n      timeout: 15000,\n    });\n  } catch (e) {\n    return { __error: String((e && (e.message || e.code)) || 'request failed').slice(0, 160) };\n  }\n};\n\nconst since24 = Date.now() - 24 * 3600e3;\nconst since7d = Date.now() - 7 * 24 * 3600e3;\nconst errors = [];\n\nconst reposRaw = await gh(`/users/${USER}/repos?sort=pushed&per_page=12`);\nconst repos = Array.isArray(reposRaw)\n  ? reposRaw.map((r) => ({\n      name: r.name,\n      url: r.html_url,\n      description: r.description || '',\n      language: r.language || '—',\n      stars: r.stargazers_count,\n      forks: r.forks_count,\n      openIssues: r.open_issues_count,\n      pushedAt: r.pushed_at,\n    }))\n  : (errors.push('repos: ' + (reposRaw.__error || 'unexpected response')), []);\n\nconst eventsRaw = await gh(`/users/${USER}/events/public?per_page=100`);\nconst events = Array.isArray(eventsRaw) ? eventsRaw : (errors.push('events: ' + (eventsRaw.__error || 'unexpected response')), []);\nconst summarize = (since) => {\n  const ev = events.filter((e) => Date.parse(e.created_at) >= since);\n  return {\n    events: ev.length,\n    pushes: ev.filter((e) => e.type === 'PushEvent').length,\n    commits: ev.filter((e) => e.type === 'PushEvent').reduce((s, e) => s + ((e.payload && (e.payload.size || (e.payload.commits || []).length)) || 0), 0),\n    pullRequests: ev.filter((e) => e.type === 'PullRequestEvent').length,\n    issues: ev.filter((e) => e.type === 'IssuesEvent' || e.type === 'IssueCommentEvent').length,\n    newRepos: ev.filter((e) => e.type === 'CreateEvent' && e.payload && e.payload.ref_type === 'repository').length,\n  };\n};\nconst recent = events.slice(0, 15).map((e) => ({\n  type: e.type.replace(/Event$/, ''),\n  repo: e.repo && e.repo.name,\n  at: e.created_at,\n  detail:\n    e.type === 'PushEvent'\n      ? `${(e.payload && (e.payload.size || (e.payload.commits || []).length)) || 0} commit(s) to ${String((e.payload && e.payload.ref) || '').replace('refs/heads/', '')}`\n      : e.type === 'PullRequestEvent'\n      ? `${e.payload.action} PR #${e.payload.number}`\n      : e.type === 'CreateEvent'\n      ? `created ${e.payload.ref_type}${e.payload.ref ? ' ' + e.payload.ref : ''}`\n      : e.payload && e.payload.action ? e.payload.action : '',\n}));\n\nconst watch = [];\nfor (const full of WATCH) {\n  const rel = await gh(`/repos/${full}/releases?per_page=3`);\n  const com = await gh(`/repos/${full}/commits?per_page=5`);\n  if (!Array.isArray(rel)) errors.push(`${full} releases: ${rel.__error || 'unexpected response'}`);\n  if (!Array.isArray(com)) errors.push(`${full} commits: ${com.__error || 'unexpected response'}`);\n  watch.push({\n    repo: full,\n    url: `https://github.com/${full}`,\n    releases: Array.isArray(rel) ? rel.map((r) => ({ name: r.name || r.tag_name, url: r.html_url, at: r.published_at })) : [],\n    commits: Array.isArray(com)\n      ? com.map((c) => ({ sha: c.sha.slice(0, 7), url: c.html_url, message: String(c.commit.message).split('\\n')[0].slice(0, 110), author: (c.commit.author && c.commit.author.name) || '', at: c.commit.author && c.commit.author.date }))\n      : [],\n  });\n}\n\nconst digest = {\n  user: USER,\n  fetchedAt: new Date().toISOString(),\n  last24h: summarize(since24),\n  last7d: summarize(since7d),\n  repos,\n  recent,\n  watch,\n  errors,\n};\nstore.digest = digest;\nstore.history = [{ at: digest.fetchedAt, ...digest.last24h }, ...(store.history || [])].slice(0, 30);\nreturn [{ json: { cached: false, errors: errors.length, repos: repos.length, events: events.length } }];\n"
+   },
+   "id": "ef929ad4-e35c-4022-954d-00d1a9ecd81a",
+   "name": "Fetch GitHub Activity",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "path": "github-digest",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "6f250ae6-4809-426f-aba5-f41b74170cba",
+   "name": "Digest Page (GET)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    260
+   ],
+   "webhookId": "d6561b1e-9a29-4d3a-bb98-4368506497d4"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Fetch GitHub Activity\" (Run Once for All Items)\n// Uses the public GitHub REST API without a token (60 requests/hour limit — this uses 4-6 per run).\nconst USER = 'aqibrehman325';\nconst WATCH = ['n8n-io/n8n']; // public repos to follow (releases + latest commits)\nconst MAX_AGE_MIN = 30; // webhook path: reuse cached digest if younger than this\n\nconst store = $getWorkflowStaticData('global');\nconst first = $input.first().json || {};\nconst fromWebhook = !!first.headers;\nconst ageMin = store.digest ? (Date.now() - Date.parse(store.digest.fetchedAt)) / 60000 : Infinity;\n// Manual refresh is throttled to once every 2 minutes to protect the API rate limit\nconst force = !fromWebhook || (first.query && first.query.refresh === '1' && ageMin > 2);\n\nif (!force && ageMin < MAX_AGE_MIN) {\n  return [{ json: { cached: true } }];\n}\n\nconst gh = async (path) => {\n  try {\n    return await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://api.github.com' + path,\n      headers: { 'User-Agent': 'n8n-github-digest', Accept: 'application/vnd.github+json' },\n      json: true,\n      timeout: 15000,\n    });\n  } catch (e) {\n    return { __error: String((e && (e.message || e.code)) || 'request failed').slice(0, 160) };\n  }\n};\n\nconst since24 = Date.now() - 24 * 3600e3;\nconst since7d = Date.now() - 7 * 24 * 3600e3;\nconst errors = [];\n\nconst reposRaw = await gh(`/users/${USER}/repos?sort=pushed&per_page=12`);\nconst repos = Array.isArray(reposRaw)\n  ? reposRaw.map((r) => ({\n      name: r.name,\n      url: r.html_url,\n      description: r.description || '',\n      language: r.language || '—',\n      stars: r.stargazers_count,\n      forks: r.forks_count,\n      openIssues: r.open_issues_count,\n      pushedAt: r.pushed_at,\n    }))\n  : (errors.push('repos: ' + (reposRaw.__error || 'unexpected response')), []);\n\nconst eventsRaw = await gh(`/users/${USER}/events/public?per_page=100`);\nconst events = Array.isArray(eventsRaw) ? eventsRaw : (errors.push('events: ' + (eventsRaw.__error || 'unexpected response')), []);\nconst summarize = (since) => {\n  const ev = events.filter((e) => Date.parse(e.created_at) >= since);\n  return {\n    events: ev.length,\n    pushes: ev.filter((e) => e.type === 'PushEvent').length,\n    commits: ev.filter((e) => e.type === 'PushEvent').reduce((s, e) => s + ((e.payload && (e.payload.size || (e.payload.commits || []).length)) || 0), 0),\n    pullRequests: ev.filter((e) => e.type === 'PullRequestEvent').length,\n    issues: ev.filter((e) => e.type === 'IssuesEvent' || e.type === 'IssueCommentEvent').length,\n    newRepos: ev.filter((e) => e.type === 'CreateEvent' && e.payload && e.payload.ref_type === 'repository').length,\n  };\n};\nconst recent = events.slice(0, 15).map((e) => ({\n  type: e.type.replace(/Event$/, ''),\n  repo: e.repo && e.repo.name,\n  at: e.created_at,\n  detail:\n    e.type === 'PushEvent'\n      ? `${(e.payload && (e.payload.size || (e.payload.commits || []).length)) || 0} commit(s) to ${String((e.payload && e.payload.ref) || '').replace('refs/heads/', '')}`\n      : e.type === 'PullRequestEvent'\n      ? `${e.payload.action} PR #${e.payload.number}`\n      : e.type === 'CreateEvent'\n      ? `created ${e.payload.ref_type}${e.payload.ref ? ' ' + e.payload.ref : ''}`\n      : e.payload && e.payload.action ? e.payload.action : '',\n}));\n\nconst watch = [];\nfor (const full of WATCH) {\n  const rel = await gh(`/repos/${full}/releases?per_page=3`);\n  const com = await gh(`/repos/${full}/commits?per_page=5`);\n  if (!Array.isArray(rel)) errors.push(`${full} releases: ${rel.__error || 'unexpected response'}`);\n  if (!Array.isArray(com)) errors.push(`${full} commits: ${com.__error || 'unexpected response'}`);\n  watch.push({\n    repo: full,\n    url: `https://github.com/${full}`,\n    releases: Array.isArray(rel) ? rel.map((r) => ({ name: r.name || r.tag_name, url: r.html_url, at: r.published_at })) : [],\n    commits: Array.isArray(com)\n      ? com.map((c) => ({ sha: c.sha.slice(0, 7), url: c.html_url, message: String(c.commit.message).split('\\n')[0].slice(0, 110), author: (c.commit.author && c.commit.author.name) || '', at: c.commit.author && c.commit.author.date }))\n      : [],\n  });\n}\n\nconst digest = {\n  user: USER,\n  fetchedAt: new Date().toISOString(),\n  last24h: summarize(since24),\n  last7d: summarize(since7d),\n  repos,\n  recent,\n  watch,\n  errors,\n};\nstore.digest = digest;\nstore.history = [{ at: digest.fetchedAt, ...digest.last24h }, ...(store.history || [])].slice(0, 30);\nreturn [{ json: { cached: false, errors: errors.length, repos: repos.length, events: events.length } }];\n"
+   },
+   "id": "8188f92e-e21d-4c6d-8503-9e6db5b5b9db",
+   "name": "Refresh If Stale",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Build Digest Page\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nconst d = store.digest;\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst ago = (iso) => {\n  if (!iso) return '—';\n  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);\n  if (m < 60) return `${m} min ago`;\n  const h = Math.round(m / 60);\n  if (h < 48) return `${h} h ago`;\n  return `${Math.round(h / 24)} days ago`;\n};\n\nlet body;\nif (!d) {\n  body = '<div class=\"card empty\">No digest yet. It is generated daily at 09:00 PKT, or add <code>?refresh=1</code> to this URL.</div>';\n} else {\n  const stat = (label, v) => `<div class=\"kpi\"><span class=\"muted\">${label}</span><b>${v}</b></div>`;\n  const repoRows = d.repos\n    .map((r) => `<tr><td><a href=\"${esc(r.url)}\">${esc(r.name)}</a><br><span class=\"muted\">${esc(r.description)}</span></td><td>${esc(r.language)}</td><td>★ ${r.stars} · ⑂ ${r.forks}</td><td>${r.openIssues}</td><td>${esc(ago(r.pushedAt))}</td></tr>`)\n    .join('');\n  const recent = d.recent.map((e) => `<li><span class=\"pill\">${esc(e.type)}</span> <strong>${esc(e.repo)}</strong> — ${esc(e.detail)} <span class=\"muted\">· ${esc(ago(e.at))}</span></li>`).join('');\n  const watch = d.watch\n    .map(\n      (w) => `<section class=\"card pad\"><h3><a href=\"${esc(w.url)}\">${esc(w.repo)}</a></h3>\n<div class=\"cols\"><div><h4>Latest releases</h4><ul class=\"plain\">${w.releases.map((r) => `<li><a href=\"${esc(r.url)}\">${esc(r.name)}</a> <span class=\"muted\">· ${esc(ago(r.at))}</span></li>`).join('') || '<li class=\"muted\">None</li>'}</ul></div>\n<div><h4>Latest commits</h4><ul class=\"plain\">${w.commits.map((c) => `<li><a href=\"${esc(c.url)}\"><code>${esc(c.sha)}</code></a> ${esc(c.message)} <span class=\"muted\">· ${esc(c.author)}, ${esc(ago(c.at))}</span></li>`).join('') || '<li class=\"muted\">None</li>'}</ul></div></div></section>`\n    )\n    .join('');\n  body = `\n<section class=\"kpis\">\n${stat('Events (24h)', d.last24h.events)}${stat('Commits (24h)', d.last24h.commits)}${stat('Commits (7 days)', d.last7d.commits)}\n${stat('Pull requests (7 days)', d.last7d.pullRequests)}${stat('Issues & comments (7 days)', d.last7d.issues)}${stat('Public repos tracked', d.repos.length)}\n</section>\n<h2>Repositories — ${esc(d.user)}</h2>\n<div class=\"card\"><table><thead><tr><th>Repository</th><th>Language</th><th>Stars / forks</th><th>Open issues</th><th>Last push</th></tr></thead><tbody>${repoRows || '<tr><td colspan=\"5\" class=\"muted\">No public repositories.</td></tr>'}</tbody></table></div>\n<h2>Recent activity</h2>\n${recent ? `<ul class=\"card list\">${recent}</ul>` : '<div class=\"card empty\">No public activity in the last 90 days.</div>'}\n<h2>Watched projects</h2>\n${watch}\n${d.errors.length ? `<p class=\"warn\">Some data could not be loaded: ${esc(d.errors.join('; '))}</p>` : ''}`;\n}\n\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>GitHub Activity Digest</title>\n<style>\n:root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--accent:#4f46e5;--warn:#d97706}\n@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaed;--muted:#9aa1ad;--line:#2a2f3a;--accent:#8b8cf8}}\n*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}\nmain{max-width:1050px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 10px}h3{margin:0 0 8px;font-size:15px}h4{margin:0 0 6px;font-size:13px;color:var(--muted)}\na{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}\n.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0}\n.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}.kpi b{display:block;font-size:22px}\n.card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow-x:auto}.pad{padding:16px;margin-bottom:12px}\ntable{width:100%;border-collapse:collapse;min-width:640px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}\nth{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}.muted{color:var(--muted);font-size:12px}\n.list{list-style:none;padding:8px 14px;margin:0}.list li{padding:6px 0;border-bottom:1px solid var(--line)}.list li:last-child{border:0}\n.plain{list-style:none;padding:0;margin:0}.plain li{margin:4px 0}.cols{display:grid;grid-template-columns:1fr 2fr;gap:16px}@media(max-width:700px){.cols{grid-template-columns:1fr}}\n.pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff}\n.empty{padding:24px;text-align:center;color:var(--muted)}.warn{color:var(--warn)}code{font-size:12px}\n</style></head><body><main>\n<h1>GitHub Activity Digest</h1>\n<div class=\"muted\">${d ? `Updated ${esc(ago(d.fetchedAt))} · refreshes daily at 09:00 PKT` : ''} · <a href=\"?refresh=1\">Refresh now</a></div>\n${body}\n</main></body></html>`;\nreturn [{ json: { html } }];\n"
+   },
+   "id": "be50c5ab-942e-42c6-83ea-1492968a3c7a",
+   "name": "Build Digest Page",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.html }}",
+    "options": {
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=utf-8"
+       }
+      ]
+     }
+    }
+   },
+   "id": "1dcbb41c-37ce-49b6-9134-8516d79e7994",
+   "name": "Return Digest Page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    720,
+    260
+   ]
+  }
+ ],
+ "connections": {
+  "Daily 09:00 PKT": {
+   "main": [
+    [
+     {
+      "node": "Fetch GitHub Activity",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Digest Page (GET)": {
+   "main": [
+    [
+     {
+      "node": "Refresh If Stale",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Refresh If Stale": {
+   "main": [
+    [
+     {
+      "node": "Build Digest Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Digest Page": {
+   "main": [
+    [
+     {
+      "node": "Return Digest Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true,
+  "timezone": "Asia/Karachi"
+ },
+ "active": false,
+ "meta": {
+  "instanceId": "demo"
+ },
+ "tags": []
+}

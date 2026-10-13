@@ -1,0 +1,351 @@
+{
+ "name": "Team Leave Requests + Owner Approvals",
+ "nodes": [
+  {
+   "parameters": {
+    "width": 820,
+    "height": 250,
+    "content": "## Team Leave Requests + Owner Approvals\n- Employee form: `/form/leave-request`\n- Owner approvals page (keep private): `/webhook/leave-admin-CHANGE-ME-2`\n- Counts working days (Mon–Fri), tracks the annual allowance (14 days, edit in **Build Approvals Page**), shows who is off in the next 7 days.\n- Approve/Reject buttons post to `/webhook/leave-action-CHANGE-ME-2` and redirect back.\n- Stored in workflow static data. No API keys or credentials required."
+   },
+   "id": "d6b7d7f1-c208-40d3-89f7-a03e3626c3db",
+   "name": "About this workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -40,
+    -300
+   ]
+  },
+  {
+   "parameters": {
+    "formTitle": "Request Time Off",
+    "formDescription": "Submit your leave request. Your manager will approve or reject it on the team approvals page.",
+    "formFields": {
+     "values": [
+      {
+       "fieldLabel": "Full Name",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Work Email",
+       "fieldType": "email",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Team",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Engineering"
+         },
+         {
+          "option": "Design"
+         },
+         {
+          "option": "QA"
+         },
+         {
+          "option": "Sales"
+         },
+         {
+          "option": "Operations"
+         },
+         {
+          "option": "Management"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Leave Type",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Annual leave"
+         },
+         {
+          "option": "Sick leave"
+         },
+         {
+          "option": "Casual leave"
+         },
+         {
+          "option": "Unpaid leave"
+         },
+         {
+          "option": "Work from home"
+         }
+        ]
+       },
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Start Date",
+       "fieldType": "date",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "End Date",
+       "fieldType": "date",
+       "requiredField": true
+      },
+      {
+       "fieldLabel": "Reason",
+       "fieldType": "textarea",
+       "placeholder": "Optional"
+      },
+      {
+       "fieldLabel": "Who covers your work?",
+       "placeholder": "Name of the colleague covering (optional)"
+      }
+     ]
+    },
+    "options": {
+     "path": "leave-request",
+     "appendAttribution": false,
+     "buttonLabel": "Submit request"
+    }
+   },
+   "id": "34a77c8a-712a-4224-ad53-5ae2a861d555",
+   "name": "Leave Request Form",
+   "type": "n8n-nodes-base.formTrigger",
+   "typeVersion": 2.2,
+   "position": [
+    0,
+    0
+   ],
+   "webhookId": "797aa302-4544-49df-a4e9-48a1bda032fd"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Validate & Count Days\" (Run Once for All Items)\nconst toDate = (s) => {\n  const m = String(s || '').match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;\n};\nconst iso = (d) => d.toISOString().slice(0, 10);\nconst rand = () => Math.random().toString(36).slice(2, 8).toUpperCase();\n\nconst out = [];\nfor (const item of $input.all()) {\n  const f = item.json;\n  let start = toDate(f['Start Date']);\n  let end = toDate(f['End Date']) || start;\n  if (start && end && end < start) [start, end] = [end, start];\n\n  // Working days (Mon–Fri), inclusive\n  let days = 0;\n  if (start && end) {\n    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {\n      const wd = d.getUTCDay();\n      if (wd !== 0 && wd !== 6) days++;\n    }\n  }\n\n  out.push({\n    json: {\n      id: 'LV-' + rand(),\n      submittedAt: new Date().toISOString(),\n      name: String(f['Full Name'] || '').trim(),\n      email: String(f['Work Email'] || '').trim().toLowerCase(),\n      team: f['Team'] || '',\n      type: f['Leave Type'] || 'Annual leave',\n      start: start ? iso(start) : '',\n      end: end ? iso(end) : '',\n      days,\n      reason: String(f['Reason'] || '').trim(),\n      cover: String(f['Who covers your work?'] || '').trim(),\n      status: 'Pending',\n      decidedAt: null,\n    },\n  });\n}\nreturn out;\n"
+   },
+   "id": "cf217bbb-441f-4b30-9618-0454099a5501",
+   "name": "Validate & Count Days",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Save Request\" (Run Once for All Items)\nconst store = $getWorkflowStaticData('global');\nstore.requests = store.requests || [];\nfor (const item of $input.all()) store.requests.unshift(item.json);\nstore.requests = store.requests.slice(0, 1000);\nreturn $input.all();\n"
+   },
+   "id": "72fccac5-79d1-4ba8-b0c2-6ff83850b570",
+   "name": "Save Request",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "completion",
+    "completionTitle": "=Request {{ $json.id }} submitted",
+    "completionMessage": "={{ $json.type }}: {{ $json.start }}{{ $json.start === $json.end ? '' : ' to ' + $json.end }} ({{ $json.days }} working day{{ $json.days === 1 ? '' : 's' }}).\n\nStatus: pending approval. Your manager will review it shortly."
+   },
+   "id": "8e39e667-0433-4ca6-bdc6-15d7aedb2fe1",
+   "name": "Confirmation",
+   "type": "n8n-nodes-base.form",
+   "typeVersion": 1,
+   "position": [
+    720,
+    0
+   ],
+   "webhookId": "ad9f84ca-e555-4e11-be8f-aed78445b35e"
+  },
+  {
+   "parameters": {
+    "path": "leave-admin-CHANGE-ME-2",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "291afeb2-218f-4ace-9678-9014afd96384",
+   "name": "Approvals Page (GET)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    260
+   ],
+   "webhookId": "6574903c-e8fc-4eff-93e5-f17977d8e91a"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Build Approvals Page\" (Run Once for All Items)\nconst ACTION_URL = '/webhook/leave-action-CHANGE-ME-2';\nconst ANNUAL_ALLOWANCE = 14; // working days per calendar year\n\nconst store = $getWorkflowStaticData('global');\nconst reqs = store.requests || [];\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst today = new Date().toISOString().slice(0, 10);\nconst year = today.slice(0, 4);\nconst q = $input.first().json.query || {};\nconst flash = q.done ? String(q.done) : '';\n\n// Annual leave used per person this year (approved only)\nconst used = {};\nfor (const r of reqs) {\n  if (r.status === 'Approved' && r.type === 'Annual leave' && String(r.start).startsWith(year)) {\n    used[r.email] = (used[r.email] || 0) + (r.days || 0);\n  }\n}\nconst left = (email) => ANNUAL_ALLOWANCE - (used[email] || 0);\n\n// Who is off in the next 7 days\nconst in7 = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);\nconst upcoming = reqs\n  .filter((r) => r.status === 'Approved' && r.end >= today && r.start <= in7)\n  .sort((a, b) => a.start.localeCompare(b.start));\nconst offToday = reqs.filter((r) => r.status === 'Approved' && r.start <= today && r.end >= today);\n\nconst pending = reqs.filter((r) => r.status === 'Pending');\nconst decided = reqs.filter((r) => r.status !== 'Pending').slice(0, 25);\n\nconst fmtRange = (r) => (r.start === r.end ? r.start : `${r.start} → ${r.end}`);\nconst btn = (r, action, label, cls) =>\n  `<form method=\"POST\" action=\"${ACTION_URL}\" style=\"display:inline\"><input type=\"hidden\" name=\"id\" value=\"${esc(r.id)}\"><input type=\"hidden\" name=\"action\" value=\"${action}\"><button class=\"${cls}\">${label}</button></form>`;\n\nconst pendingRows = pending\n  .map((r) => {\n    const over = r.type === 'Annual leave' && r.days > left(r.email);\n    return `<tr>\n<td><strong>${esc(r.name)}</strong><br><span class=\"muted\">${esc(r.team)} · ${esc(r.email)}</span></td>\n<td>${esc(r.type)}</td>\n<td>${esc(fmtRange(r))}<br><span class=\"muted\">${r.days} working day${r.days === 1 ? '' : 's'}</span></td>\n<td>${r.type === 'Annual leave' ? `${left(r.email)} left${over ? ' <span class=\"warn\">exceeds balance</span>' : ''}` : '<span class=\"muted\">n/a</span>'}</td>\n<td>${esc(r.reason) || '<span class=\"muted\">—</span>'}${r.cover ? `<br><span class=\"muted\">Cover: ${esc(r.cover)}</span>` : ''}</td>\n<td class=\"actions\">${btn(r, 'approve', 'Approve', 'ok')} ${btn(r, 'reject', 'Reject', 'no')}</td>\n</tr>`;\n  })\n  .join('');\n\nconst decidedRows = decided\n  .map(\n    (r) => `<tr><td>${esc(r.name)}<br><span class=\"muted\">${esc(r.team)}</span></td><td>${esc(r.type)}</td><td>${esc(fmtRange(r))} · ${r.days}d</td>\n<td><span class=\"tag ${r.status === 'Approved' ? 'ok' : 'no'}\">${esc(r.status)}</span></td><td class=\"muted\">${esc((r.decidedAt || '').slice(0, 16).replace('T', ' '))}</td></tr>`\n  )\n  .join('');\n\nconst upcomingList = upcoming.map((r) => `<li><strong>${esc(r.name)}</strong> <span class=\"muted\">(${esc(r.team)})</span> — ${esc(r.type)}, ${esc(fmtRange(r))}</li>`).join('');\n\nconst html = `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\"><title>Leave Approvals</title>\n<style>\n:root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--ok:#16a34a;--no:#dc2626;--warn:#d97706;--accent:#4f46e5}\n@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaed;--muted:#9aa1ad;--line:#2a2f3a}}\n*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}\nmain{max-width:1150px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 10px}\n.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0}\n.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}.kpi b{display:block;font-size:22px}\n.card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow-x:auto}\ntable{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}\nth{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}.muted{color:var(--muted);font-size:12px}\nbutton{border:0;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;color:#fff}button.ok{background:var(--ok)}button.no{background:var(--no)}\n.actions{white-space:nowrap}.tag{padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;color:#fff}.tag.ok{background:var(--ok)}.tag.no{background:var(--no)}\n.warn{color:var(--warn);font-size:12px;font-weight:600}.empty{padding:24px;text-align:center;color:var(--muted)}\n.flash{background:var(--accent);color:#fff;padding:10px 14px;border-radius:10px;margin-top:12px}\nul{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 12px 30px;margin:0}li{margin:4px 0}\n</style></head><body><main>\n<h1>Leave Approvals</h1><div class=\"muted\">Team leave requests · annual allowance ${ANNUAL_ALLOWANCE} working days · ${esc(today)}</div>\n${flash ? `<div class=\"flash\">${esc(flash)}</div>` : ''}\n<section class=\"kpis\">\n<div class=\"kpi\"><span class=\"muted\">Pending</span><b style=\"color:var(--warn)\">${pending.length}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Off today</span><b>${offToday.length}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Approved (${year})</span><b style=\"color:var(--ok)\">${reqs.filter((r) => r.status === 'Approved' && String(r.start).startsWith(year)).length}</b></div>\n<div class=\"kpi\"><span class=\"muted\">Days approved (${year})</span><b>${reqs.filter((r) => r.status === 'Approved' && String(r.start).startsWith(year)).reduce((s, r) => s + r.days, 0)}</b></div>\n</section>\n<h2>Waiting for approval</h2>\n<div class=\"card\">${pending.length ? `<table><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Annual balance</th><th>Reason</th><th></th></tr></thead><tbody>${pendingRows}</tbody></table>` : '<div class=\"empty\">No pending requests.</div>'}</div>\n<h2>Who's off in the next 7 days</h2>\n${upcomingList ? `<ul>${upcomingList}</ul>` : '<div class=\"card\"><div class=\"empty\">Nobody is scheduled to be off.</div></div>'}\n<h2>Recent decisions</h2>\n<div class=\"card\">${decided.length ? `<table><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Status</th><th>Decided (UTC)</th></tr></thead><tbody>${decidedRows}</tbody></table>` : '<div class=\"empty\">No decisions yet.</div>'}</div>\n</main></body></html>`;\n\nreturn [{ json: { html } }];\n"
+   },
+   "id": "47fe704c-77d9-4982-96df-8dc4cd56ff31",
+   "name": "Build Approvals Page",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.html }}",
+    "options": {
+     "responseHeaders": {
+      "entries": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=utf-8"
+       }
+      ]
+     }
+    }
+   },
+   "id": "e3931aeb-5b18-45ed-b3aa-83ce10e5a100",
+   "name": "Return Approvals Page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    480,
+    260
+   ]
+  },
+  {
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "leave-action-CHANGE-ME-2",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "a82f37f0-fb8c-4576-ac1d-530d06139973",
+   "name": "Decision (POST)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    480
+   ],
+   "webhookId": "ccdc0c13-d162-4b28-a15b-514cf518dff4"
+  },
+  {
+   "parameters": {
+    "jsCode": "// Code node: \"Apply Decision\" (Run Once for All Items)\nconst ADMIN_URL = '/webhook/leave-admin-CHANGE-ME-2';\nconst store = $getWorkflowStaticData('global');\nstore.requests = store.requests || [];\n\nconst body = $input.first().json.body || {};\nconst id = String(body.id || '');\nconst action = String(body.action || '');\nconst r = store.requests.find((x) => x.id === id);\n\nlet message = 'Request not found.';\nif (r && r.status === 'Pending' && (action === 'approve' || action === 'reject')) {\n  r.status = action === 'approve' ? 'Approved' : 'Rejected';\n  r.decidedAt = new Date().toISOString();\n  message = `${r.name}'s ${r.type.toLowerCase()} (${r.start}${r.start === r.end ? '' : ' → ' + r.end}) was ${r.status.toLowerCase()}.`;\n} else if (r) {\n  message = `${r.id} was already ${r.status.toLowerCase()}.`;\n}\nreturn [{ json: { redirect: `${ADMIN_URL}?done=${encodeURIComponent(message)}`, id, action, message } }];\n"
+   },
+   "id": "5fbb349a-b7db-4506-9220-b087f9c9117b",
+   "name": "Apply Decision",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    240,
+    480
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "redirect",
+    "redirectURL": "={{ $json.redirect }}",
+    "options": {}
+   },
+   "id": "5ea0cdcd-ed82-42fe-b185-a85b01f6130f",
+   "name": "Back to Approvals",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    480,
+    480
+   ]
+  }
+ ],
+ "connections": {
+  "Leave Request Form": {
+   "main": [
+    [
+     {
+      "node": "Validate & Count Days",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Validate & Count Days": {
+   "main": [
+    [
+     {
+      "node": "Save Request",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Request": {
+   "main": [
+    [
+     {
+      "node": "Confirmation",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approvals Page (GET)": {
+   "main": [
+    [
+     {
+      "node": "Build Approvals Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Approvals Page": {
+   "main": [
+    [
+     {
+      "node": "Return Approvals Page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Decision (POST)": {
+   "main": [
+    [
+     {
+      "node": "Apply Decision",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Apply Decision": {
+   "main": [
+    [
+     {
+      "node": "Back to Approvals",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true
+ },
+ "active": false,
+ "meta": {
+  "instanceId": "demo"
+ },
+ "tags": []
+}
