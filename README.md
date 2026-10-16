@@ -1,6 +1,6 @@
 # n8n AI automation demos
 
-Six working automations built on a self-hosted n8n server (DigitalOcean, Docker, PostgreSQL). Every workflow here runs live with sample data, so you can click the links and try them before reading the code.
+Seven working automations built on a self-hosted n8n server (DigitalOcean, Docker, PostgreSQL). Every workflow here runs live with sample data, so you can click the links and try them before reading the code.
 
 | # | Workflow | Try it live | What it does |
 |---|----------|-------------|--------------|
@@ -10,6 +10,7 @@ Six working automations built on a self-hosted n8n server (DigitalOcean, Docker,
 | 4 | [Team leave requests with manager approval](workflows/04-leave-requests-approvals.json) | https://n8n.rixgpt.com/form/leave-request | Employees request time off, n8n counts working days, checks the annual allowance and adds the request to an approvals page. The owner approves or rejects with one click and sees who is off in the next 7 days. |
 | 5 | [Website uptime monitor & public status page](workflows/05-uptime-monitor-status-page.json) | https://n8n.rixgpt.com/webhook/status | Checks a list of sites every 5 minutes, keeps 24 hours of history and serves a public status page with uptime % and recent incidents. |
 | 6 | [GitHub activity digest](workflows/06-github-activity-digest.json) | https://n8n.rixgpt.com/webhook/github-digest | A daily page with commits, pull requests and releases for the accounts and repos you watch, using the public GitHub API. |
+| 7 | [Lead qualification → call booking → HubSpot CRM (Gemini, Google Calendar, Gmail)](workflows/07-lead-qualification-booking-hubspot.json) | https://n8n.rixgpt.com/webhook/book-a-call | A lead fills a short form; Gemini scores it 0-100 and writes a call agenda. The contact is created in HubSpot and logged in Google Sheets. Good fits pick a time from live Google Calendar free/busy; booking re-checks the slot, creates the event and a HubSpot deal, and sends a Gmail confirmation with an .ics invite. One reminder email after 45 minutes if no time is picked. |
 
 ![Client intake dashboard](images/01-intake-dashboard.jpg)
 
@@ -24,6 +25,7 @@ Six working automations built on a self-hosted n8n server (DigitalOcean, Docker,
 1. In your n8n instance open **Workflows → Import from file** and pick one of the JSON files in `workflows/`.
 2. Private pages (owner dashboard, approvals page, proposal builder, re-index URL) use webhook paths ending in `CHANGE-ME-1` … `CHANGE-ME-4`. Replace them with your own random strings so nobody can guess the URLs.
 3. Workflow 2 needs a Google Gemini API credential (the free tier is enough): open the four Gemini nodes and select your credential. Then open the re-index URL once to build the vectors.
+3. Workflow 7 needs Google Gemini, Google Calendar, Google Sheets, Gmail and HubSpot (service key / private app token) credentials. Replace `YOUR_CALENDAR_ID`, `YOUR_SHEET_ID` (with a "Booking log" tab), `YOUR_HUBSPOT_PORTAL_ID`, `you@yourdomain.com` and `booking/owner-CHANGE-ME` in the Code and HTTP nodes.
 4. Workflow 1, 3, 4 and 5 use no external APIs at all. Data is kept in the workflow's static data, which is fine for demos and small teams; for larger volumes point the Code nodes at PostgreSQL (or pgvector / Qdrant for the RAG workflow).
 5. Activate the workflow. Form URLs are `/form/<path>`, pages and APIs are `/webhook/<path>`.
 
