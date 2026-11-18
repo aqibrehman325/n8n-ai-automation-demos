@@ -1,0 +1,1845 @@
+{
+ "name": "AI content auto-publisher: news → Gemini → WordPress draft → Telegram approval → WordPress + LinkedIn + Sheets",
+ "nodes": [
+  {
+   "id": "a576e157-7d89-4703-baa3-7f0a0d22935d",
+   "name": "Weekdays 09:23 (PKT)",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "cronExpression",
+       "expression": "23 9 * * 1-5"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "6d0b2b04-b947-412c-a04d-8336a49cb41e",
+   "name": "Draft now (private)",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    180
+   ],
+   "parameters": {
+    "path": "content/draft-CHANGE-ME",
+    "responseMode": "onReceived",
+    "options": {}
+   },
+   "webhookId": "82dc7853-816c-4320-a13c-6a2ec04e4344"
+  },
+  {
+   "id": "5bc16940-38df-49a0-a45e-65355ad8be92",
+   "name": "Should we draft?",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    90
+   ],
+   "parameters": {
+    "jsCode": "// Decide whether to write a new draft now (one automatic draft per weekday; manual /new allowed up to 4 a day)\nconst store = $getWorkflowStaticData('global');\nconst inp = $input.first().json || {};\nconst viaBot = $('Handle content bot').isExecuted && $('Handle content bot').first().json.kind === 'new';\nconst manual = !!(inp.query || inp.headers) || viaBot;\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });\nconst day = store.day && store.day.date === today ? store.day : { date: today, auto: 0, manual: 0 };\nconst pending = Object.values(store.drafts || {}).filter((d) => d.status === 'waiting').length;\nlet why = null;\nif (store.paused) why = 'drafting is paused (send /resume)';\nelse if (!manual && day.auto >= 1) why = 'already drafted today';\nelse if (!manual && pending >= 2) why = 'two drafts are still waiting for your approval';\nelse if (manual && day.manual >= 4) why = 'manual limit reached for today (4)';\nif (why) return [{ json: { ok: false, manual, why } }];\nif (manual) day.manual++; else day.auto++;\nstore.day = day;\nreturn [{ json: { ok: true, manual } }];\n"
+   }
+  },
+  {
+   "id": "569c3d79-e7d0-4ed1-9d29-75996b72bad2",
+   "name": "Draft OK?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    440,
+    90
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "f5823af4-b440-48d9-a123-410a2bb6e69e",
+       "leftValue": "={{ $json.ok }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "8396674d-656f-4a15-8ba7-18c8aabb2376",
+   "name": "Tell Aqib why?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    660,
+    260
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "7d2ea4f0-45aa-4aa0-804b-ebdaa1e46b96",
+       "leftValue": "={{ $json.manual }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "444b444e-bd7f-4121-8e92-dccea064e290",
+   "name": "Telegram – not drafting",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    880,
+    260
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ 'Not drafting right now: ' + $json.why + '.' }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "b238e100-1a13-4879-a58f-b2d41fc7e5bf",
+   "name": "Feed – Google News (AI marketing)",
+   "type": "n8n-nodes-base.rssFeedRead",
+   "typeVersion": 1.1,
+   "position": [
+    660,
+    40
+   ],
+   "parameters": {
+    "url": "https://news.google.com/rss/search?q=AI+marketing+%22small+businesses%22&hl=en-GB&gl=GB&ceid=GB:en",
+    "options": {}
+   },
+   "onError": "continueRegularOutput",
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "id": "1fbb4206-976d-4704-a3c3-dea3086ae9a0",
+   "name": "Feed – Google News (automation)",
+   "type": "n8n-nodes-base.rssFeedRead",
+   "typeVersion": 1.1,
+   "position": [
+    860,
+    40
+   ],
+   "parameters": {
+    "url": "https://news.google.com/rss/search?q=%22small+business%22+AI+automation+when:7d&hl=en-GB&gl=GB&ceid=GB:en",
+    "options": {}
+   },
+   "onError": "continueRegularOutput",
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "id": "e9e2063a-76ce-46f8-9eac-f34c9ec94b69",
+   "name": "Feed – Zapier blog",
+   "type": "n8n-nodes-base.rssFeedRead",
+   "typeVersion": 1.1,
+   "position": [
+    1060,
+    40
+   ],
+   "parameters": {
+    "url": "https://zapier.com/blog/feeds/latest/",
+    "options": {}
+   },
+   "onError": "continueRegularOutput",
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "id": "448f1121-8d7b-4d8e-b3de-c91dd23172d5",
+   "name": "Feed – HubSpot marketing",
+   "type": "n8n-nodes-base.rssFeedRead",
+   "typeVersion": 1.1,
+   "position": [
+    1260,
+    40
+   ],
+   "parameters": {
+    "url": "https://blog.hubspot.com/marketing/rss.xml",
+    "options": {}
+   },
+   "onError": "continueRegularOutput",
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "id": "85f52cd0-435a-4756-aed2-6ca6532d83f6",
+   "name": "Feed – Search Engine Journal",
+   "type": "n8n-nodes-base.rssFeedRead",
+   "typeVersion": 1.1,
+   "position": [
+    1460,
+    40
+   ],
+   "parameters": {
+    "url": "https://www.searchenginejournal.com/feed/",
+    "options": {}
+   },
+   "onError": "continueRegularOutput",
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "id": "f1975eb9-166f-489c-9c3d-b4170175e711",
+   "name": "Pick candidates",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1700,
+    40
+   ],
+   "parameters": {
+    "jsCode": "// Collect fresh, relevant stories from the feeds (no repeats) and ask Gemini to pick the best one for small businesses\nconst store = $getWorkflowStaticData('global');\nconst FEEDS = ['Feed – Google News (AI marketing)', 'Feed – Google News (automation)', 'Feed – Zapier blog', 'Feed – HubSpot marketing', 'Feed – Search Engine Journal'];\nconst used = new Set(store.used || []);\nconst norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 80);\nconst REL = /\\b(ai|automat\\w*|chatgpt|gpt|gemini|claude|copilot|agents?|chatbots?|workflows?|no-code|zapier|small business(es)?|smbs?|marketing|content|email|seo|customer service|crm|productivity)\\b/i;\nconst items = [];\nfor (const f of FEEDS) {\n  let arr = [];\n  try { arr = $(f).all().map((i) => i.json); } catch (e) { arr = []; }\n  for (const it of arr) {\n    if (!it || !it.title || it.error) continue;\n    const d = Date.parse(it.isoDate || it.pubDate || 0);\n    const age = (Date.now() - d) / 864e5;\n    if (!(age >= -1 && age <= 6)) continue;\n    const link = it.link || it.guid;\n    if (!link || used.has(link) || used.has(norm(it.title))) continue;\n    const text = `${it.title} ${it.contentSnippet || ''}`;\n    if (!REL.test(text)) continue;\n    const isGN = /news\\.google\\.com/.test(link);\n    const gnSource = (String(it.title).match(/ - ([^-]+)$/) || [])[1];\n    items.push({ title: isGN ? String(it.title).replace(/ - [^-]+$/, '').trim() : String(it.title).trim(), link, source: (isGN ? gnSource : f.replace('Feed – ', '')) || 'Google News', date: new Date(d).toISOString().slice(0, 10), snippet: String(it.contentSnippet || '').replace(/\\s+/g, ' ').slice(0, 400), isGN });\n  }\n}\nconst seenT = new Set();\nconst cand = [];\nfor (const c of items.sort((a, b) => b.date.localeCompare(a.date))) { const k = norm(c.title); if (seenT.has(k)) continue; seenT.add(k); cand.push(c); if (cand.length >= 18) break; }\nif (!cand.length) return [{ json: { none: true, why: 'no fresh, relevant stories in the feeds today' } }];\nconst KEYS = ['writing', 'chatbot', 'email', 'social', 'workflow', 'analytics', 'ecommerce', 'seo', 'booking', 'productivity'];\nconst recent = (store.recentImages || []).slice(0, 3);\nconst prompt = `You are the editor of the \"AI & Automation\" section on Content Writing UK, a UK content-writing agency's blog. Readers are small business owners and marketers.\nPick the ONE story below that makes the most useful, practical article for them about using AI or automation in content, marketing, customer service or daily operations. Prefer practical how-to angles over funding news, and avoid stories that only matter to big tech companies.\nChoose the best featured image key from: ${KEYS.join(', ')}${recent.length ? ` (if another key fits equally well, avoid these recent ones: ${recent.join(', ')})` : ''}.\nReturn only JSON: {\"index\": <number>, \"angle\": \"<one sentence: the practical angle for small businesses>\", \"image\": \"<key>\", \"focus_keyword\": \"<2-4 word SEO keyword>\"}\nStories: ${JSON.stringify(cand.map((c, i) => ({ i, title: c.title, source: c.source, date: c.date, snippet: c.snippet })))}`;\nreturn [{ json: { cand, geminiBody: { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, responseMimeType: 'application/json' } } } }];\n"
+   }
+  },
+  {
+   "id": "550b3d29-6924-4b11-bf74-87bdbab47e16",
+   "name": "Any stories?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1920,
+    40
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "12f13a59-be0d-418d-a90e-9f45311fd562",
+       "leftValue": "={{ !$json.none }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "1f09494d-3669-472f-8218-2aaf9acc80fb",
+   "name": "Telegram – no stories",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    2140,
+    200
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ 'No draft today: ' + $json.why + '. I will look again tomorrow (or send /new later).' }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "c59975e2-8e73-4ae2-8516-9df3b301e89e",
+   "name": "Gemini – pick story",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2140,
+    40
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googlePalmApi",
+    "options": {
+     "timeout": 120000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($json.geminiBody) }}"
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 4,
+   "waitBetweenTries": 5000
+  },
+  {
+   "id": "b42071ff-7d7a-42f2-a91f-d5d235b1df5e",
+   "name": "Read pick",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2360,
+    40
+   ],
+   "parameters": {
+    "jsCode": "// Read Gemini's choice (fallback: the newest story)\nconst p = $('Pick candidates').first().json;\nlet a = {};\ntry { const g = $input.first().json; a = JSON.parse(g.candidates[0].content.parts.map((x) => x.text || '').join('').replace(/^```(json)?\\s*|```\\s*$/g, '').trim()); } catch (e) { a = {}; }\nconst KEYS = ['writing', 'chatbot', 'email', 'social', 'workflow', 'analytics', 'ecommerce', 'seo', 'booking', 'productivity'];\nconst story = p.cand[Number.isInteger(a.index) && p.cand[a.index] ? a.index : 0];\nreturn [{ json: { story, angle: String(a.angle || 'What this means for small businesses, and practical steps to try').slice(0, 240), image: KEYS.includes(a.image) ? a.image : 'workflow', focus: String(a.focus_keyword || 'AI for small business').slice(0, 60), fetchUrl: story.isGN ? '' : story.link } }];\n"
+   }
+  },
+  {
+   "id": "51b3a64b-37e5-4477-aeba-388da7c65685",
+   "name": "Fetch the article?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    2580,
+    40
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "8d3191fb-87c7-48e6-b75e-64585ad89716",
+       "leftValue": "={{ !!$json.fetchUrl }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "98086188-eb1b-4c95-a89b-6dfc4c492c12",
+   "name": "Fetch article",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2800,
+    -60
+   ],
+   "parameters": {
+    "method": "GET",
+    "url": "={{ $json.fetchUrl }}",
+    "authentication": "none",
+    "options": {
+     "timeout": 12000,
+     "allowUnauthorizedCerts": true,
+     "response": {
+      "response": {
+       "responseFormat": "text",
+       "outputPropertyName": "data",
+       "neverError": true
+      }
+     }
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "User-Agent",
+       "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+      }
+     ]
+    }
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "2e117de0-88f9-4c95-9973-172efb8ad044",
+   "name": "Writer prompt",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3020,
+    40
+   ],
+   "parameters": {
+    "jsCode": "// Build the article prompt (new draft, or a rewrite of an existing draft)\nconst store = $getWorkflowStaticData('global');\nlet ctx, rewrite = null, sourceText = '';\nif ($('Handle content bot').isExecuted && $('Handle content bot').first().json.kind === 'rewrite') {\n  const h = $('Handle content bot').first().json;\n  const d = store.drafts[h.postId];\n  ctx = { story: d.story, angle: d.angle, image: d.image, focus: d.focus };\n  rewrite = { postId: h.postId, prevTitle: d.title };\n  sourceText = d.sourceText || '';\n} else {\n  ctx = $('Read pick').first().json;\n  if ($('Fetch article').isExecuted) {\n    const html = String(($('Fetch article').first().json || {}).data || '');\n    const main = (html.match(/<article[\\s\\S]*?<\\/article>/i) || html.match(/<main[\\s\\S]*?<\\/main>/i) || [html])[0];\n    sourceText = main.replace(/<(script|style|nav|footer|header|aside|form)[\\s\\S]*?<\\/\\1>/gi, ' ').replace(/<\\/(p|h[1-6]|li|blockquote)>/gi, '\\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#8217;|&rsquo;/g, \"'\").replace(/[ \\t]+/g, ' ').split('\\n').map((s) => s.trim()).filter((s) => s.length > 40).join('\\n').slice(0, 6000);\n  }\n}\nconst s = ctx.story;\nconst prompt = `You write for the \"AI & Automation\" section of Content Writing UK (contentwritinguk.com), a UK content-writing agency. Audience: UK small business owners and marketers, not technical people.\nWrite an ORIGINAL, genuinely useful article inspired by the story below, using this angle: ${ctx.angle}\nRules:\n- LENGTH: 850-1,050 words of article text (this matters: count carefully; each <h2> section should be 140-220 words). British English, plain and friendly expert tone, short paragraphs, no hype, no emojis, no exclamation marks.\n- Use only facts that appear in the source material below; never invent statistics, quotes, prices, names or dates. If a fact is not in the source, keep the point general. Credit the source by name once where you use its facts.\n- Structure: an engaging intro (2-3 short paragraphs, no heading), then 3-5 sections with <h2> headings (<h3> optional), at least one practical list (<ul> or <ol>) of steps a small business could try this week, and a short final section headed \"The bottom line\".\n- Once, near the end and only where it fits naturally, note that AI output still needs a human editor's touch and that Content Writing UK's writers can help. No hard sell.\n- HTML only, using just these tags: h2, h3, p, ul, ol, li, strong, em, blockquote. No h1, no links, no inline styles, no images.\n- Do not copy sentences from the source.\n${rewrite ? `- This is a REWRITE: use a clearly different title and structure from the previous version (previous title: \"${rewrite.prevTitle}\").\\n` : ''}Also write:\n- title: max 65 characters, includes the focus keyword \"${ctx.focus}\" naturally, no clickbait.\n- seo_title: max 60 characters. meta_description: 140-158 characters. slug: 3-6 lowercase words joined by hyphens. excerpt: 1-2 sentences.\n- linkedin_post: 80-170 words in Aqib's voice (first person; he runs Content Writing UK and an automation studio). A strong first-line hook, 2-4 short paragraphs or a short list, one practical takeaway, end with a question that invites comments, then 3 relevant hashtags. Do not include any link (it is added automatically).\n- x_post: max 260 characters, at most 1 hashtag.\n- instagram_caption: 60-120 words, then 5 hashtags.\nReturn only JSON: {\"title\":\"\",\"seo_title\":\"\",\"meta_description\":\"\",\"slug\":\"\",\"excerpt\":\"\",\"html\":\"\",\"linkedin_post\":\"\",\"x_post\":\"\",\"instagram_caption\":\"\"}\nStory: ${s.title} (${s.source}, ${s.date})\nSnippet: ${s.snippet}\nSource text (may be partial or empty): ${sourceText || '(not available - rely on the title and snippet only and keep facts general)'}`;\nreturn [{ json: { ...ctx, rewrite, sourceText, geminiBody: { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: rewrite ? 0.85 : 0.6, responseMimeType: 'application/json', maxOutputTokens: 8000 } } } }];\n"
+   }
+  },
+  {
+   "id": "c8f62e3b-48d6-402b-8d1a-7527e13df53c",
+   "name": "Gemini – write post",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    3240,
+    40
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googlePalmApi",
+    "options": {
+     "timeout": 120000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($json.geminiBody) }}"
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 4,
+   "waitBetweenTries": 5000
+  },
+  {
+   "id": "8f8efa27-e923-4bdf-9105-647190f6d38b",
+   "name": "Written?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    3350,
+    160
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "b1da623d-b462-4a13-9afe-00675acf87fa",
+       "leftValue": "={{ !!($json.candidates && $json.candidates[0] && $json.candidates[0].content) }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "44734eac-207c-477c-80d0-4be27409575f",
+   "name": "Gemini – write post (backup)",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    3350,
+    300
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googlePalmApi",
+    "options": {
+     "timeout": 120000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($('Writer prompt').first().json.geminiBody) }}"
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 4,
+   "waitBetweenTries": 5000
+  },
+  {
+   "id": "ac4a2551-a3dc-4dbd-ac72-a31d4ca8c710",
+   "name": "Assemble post",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3460,
+    40
+   ],
+   "parameters": {
+    "jsCode": "// Parse the article, clean the HTML, add sources + note, and prepare the WordPress draft\nconst SITE = 'https://contentwritinguk.com';\nconst CAT = 68;\nconst MEDIA = { analytics: 5059, booking: 5060, chatbot: 5061, ecommerce: 5062, email: 5063, productivity: 5064, seo: 5065, social: 5066, workflow: 5067, writing: 5068 };\nconst IMG = (k) => `${SITE}/wp-content/uploads/2026/11/cwuk-ai-${k}.png`;\nconst w = $('Writer prompt').first().json;\nlet a = {};\ntry { const g = ($input.first().json && $input.first().json.candidates) ? $input.first().json : ($('Gemini – write post').first().json || {}); a = JSON.parse(g.candidates[0].content.parts.map((x) => x.text || '').join('').replace(/^```(json)?\\s*|```\\s*$/g, '').trim()); } catch (e) { a = {}; }\nif (!a.title || !a.html) return [{ json: { failed: true, why: 'The AI did not return a usable article (try /new again).' } }];\nconst ALLOWED = ['h2', 'h3', 'p', 'ul', 'ol', 'li', 'strong', 'em', 'blockquote'];\nlet html = String(a.html).replace(/<(script|style)[\\s\\S]*?<\\/\\1>/gi, '').replace(/<\\/?([a-z0-9]+)(\\s[^>]*)?>/gi, (m, t) => (ALLOWED.includes(t.toLowerCase()) ? m.replace(/\\s[^>]*>/, '>') : '')).replace(/\\n{3,}/g, '\\n\\n').trim();\nconst esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst s = w.story;\nhtml += `\\n<h2>Source</h2>\\n<ul><li><a href=\"${esc(s.link)}\" target=\"_blank\" rel=\"nofollow noopener\">${esc(s.title)}</a> (${esc(s.source)}, ${esc(s.date)})</li></ul>\\n<p><em>This article was prepared with the help of AI and reviewed by the Content Writing UK team before publishing.</em></p>`;\nconst words = html.replace(/<[^>]+>/g, ' ').split(/\\s+/).filter(Boolean).length;\nconst slug = String(a.slug || a.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 8).join('-');\nconst body = { title: String(a.title).slice(0, 90), content: html, status: 'draft', excerpt: String(a.excerpt || a.meta_description || '').slice(0, 300), slug, categories: [CAT], featured_media: MEDIA[w.image] || MEDIA.workflow };\nreturn [{ json: { wpUrl: `${SITE}/wp-json/wp/v2/posts${w.rewrite ? '/' + w.rewrite.postId : ''}`, wpBody: body, words, seoTitle: String(a.seo_title || a.title).slice(0, 60), meta: String(a.meta_description || a.excerpt || '').slice(0, 160), linkedin: String(a.linkedin_post || '').trim(), x: String(a.x_post || '').trim(), ig: String(a.instagram_caption || '').trim() } }];\n"
+   }
+  },
+  {
+   "id": "31b78df5-9bc4-48bd-b27f-7bcb3272fc2c",
+   "name": "Article OK?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    3680,
+    40
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "72a2ac6f-bba4-45a8-8ed3-c269d696fa9a",
+       "leftValue": "={{ !$json.failed }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "ad272355-de5c-4910-986f-fb81b5fd0e7c",
+   "name": "Telegram – writing failed",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    3900,
+    200
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ $json.why }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "650cd072-1da3-49e9-a98c-c3150c83559b",
+   "name": "WP – save draft",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    3900,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $json.wpUrl }}",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "wordpressApi",
+    "options": {
+     "timeout": 30000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify($json.wpBody) }}"
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "fbadd876-15c1-42c7-82a2-caed4bcf762c",
+   "name": "Rank Math – SEO fields",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    4120,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://contentwritinguk.com/wp-json/rankmath/v1/updateMeta",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "wordpressApi",
+    "options": {
+     "timeout": 30000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ objectID: $json.id, objectType: 'post', meta: { rank_math_title: $('Assemble post').first().json.seoTitle, rank_math_description: $('Assemble post').first().json.meta, rank_math_focus_keyword: $('Writer prompt').first().json.focus } }) }}"
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "098459ec-33f5-4984-bd2d-3ee0bae80a58",
+   "name": "Save draft",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4340,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// Remember the draft and build the Telegram approval card\nconst SITE = 'https://contentwritinguk.com';\nconst CAT = 68;\nconst MEDIA = { analytics: 5059, booking: 5060, chatbot: 5061, ecommerce: 5062, email: 5063, productivity: 5064, seo: 5065, social: 5066, workflow: 5067, writing: 5068 };\nconst IMG = (k) => `${SITE}/wp-content/uploads/2026/11/cwuk-ai-${k}.png`;\nconst store = $getWorkflowStaticData('global');\nconst w = $('Writer prompt').first().json;\nconst p = $('Assemble post').first().json;\nconst r = $('WP – save draft').first().json || {};\nif (r.error || !r.id) return [{ json: { failed: true, text: `Could not save the draft in WordPress: ${String((r.error && (r.error.message || r.error.description)) || 'no post id').slice(0, 200)}` } }];\nconst v = Math.random().toString(36).slice(2, 6);\nstore.drafts = store.drafts || {};\nstore.drafts[r.id] = { id: r.id, v, status: 'waiting', title: p.wpBody.title, story: w.story, angle: w.angle, image: w.image, focus: w.focus, sourceText: String(w.sourceText || '').slice(0, 4000), linkedin: p.linkedin, x: p.x, ig: p.ig, excerpt: p.wpBody.excerpt, words: p.words, created: new Date().toISOString() };\nstore.used = [w.story.link, String(w.story.title).toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 80), ...(store.used || [])].slice(0, 400);\nstore.recentImages = [w.image, ...(store.recentImages || [])].slice(0, 5);\nconst ids = Object.keys(store.drafts).sort((a, b) => Number(b) - Number(a)); ids.slice(30).forEach((k) => { if (store.drafts[k].status !== 'waiting') delete store.drafts[k]; });\nconst card = [\n  `${w.rewrite ? 'REWRITTEN' : 'New'} blog draft – AI & Automation (${p.words} words${p.words < 650 ? ', a bit short: tap Rewrite for a longer version' : ''})`,\n  `Title: ${p.wpBody.title}`,\n  `Based on: ${w.story.title} (${w.story.source}, ${w.story.date})`,\n  `Preview (you must be logged in to WordPress): ${SITE}/?p=${r.id}&preview=true`,\n  `SEO: ${p.seoTitle} | ${p.meta}`,\n  '', 'LinkedIn post (goes out when you tap Publish):', p.linkedin,\n  '', 'X draft:', p.x,\n  '', 'Instagram draft:', p.ig.slice(0, 600),\n  '', 'Reply to this message with new text to replace the LinkedIn post.', `Ref D${r.id}`,\n].join('\\n').slice(0, 4000);\nreturn [{ json: { failed: false, postId: r.id, cb: `${r.id}:${v}`, card, photo: IMG(w.image), caption: `${p.wpBody.title}\\n\\n${p.wpBody.excerpt}`.slice(0, 1000) } }];\n"
+   }
+  },
+  {
+   "id": "3bf49195-966c-4b90-88bc-ea1e3a39d7b4",
+   "name": "Saved?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    4560,
+    0
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "2dbe9910-23e2-4e9d-af19-1c48283bfe14",
+       "leftValue": "={{ !$json.failed }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "683485a0-58f0-4fa5-8de9-a5fb94b6582c",
+   "name": "Telegram – save failed",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    4780,
+    160
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ $json.text }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "0dd79df9-b2e7-46d6-996f-8cebd0e11559",
+   "name": "Telegram – image",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    4780,
+    -60
+   ],
+   "parameters": {
+    "operation": "sendPhoto",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "binaryData": false,
+    "file": "={{ $json.photo }}",
+    "additionalFields": {
+     "caption": "={{ $json.caption }}"
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "666960e9-2e4c-4ff0-9b02-877129de04b2",
+   "name": "Telegram – approval card",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    5000,
+    -60
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ $('Save draft').first().json.card }}",
+    "replyMarkup": "inlineKeyboard",
+    "inlineKeyboard": {
+     "rows": [
+      {
+       "row": {
+        "buttons": [
+         {
+          "text": "Publish now",
+          "additionalFields": {
+           "callback_data": "=cp:{{ $('Save draft').first().json.cb }}"
+          }
+         },
+         {
+          "text": "Rewrite",
+          "additionalFields": {
+           "callback_data": "=cr:{{ $('Save draft').first().json.cb }}"
+          }
+         },
+         {
+          "text": "Skip",
+          "additionalFields": {
+           "callback_data": "=cs:{{ $('Save draft').first().json.cb }}"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "598e37f6-b137-46ca-b772-812fbb153684",
+   "name": "Content bot – buttons and commands",
+   "type": "n8n-nodes-base.telegramTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    520
+   ],
+   "parameters": {
+    "updates": [
+     "message",
+     "callback_query"
+    ],
+    "additionalFields": {}
+   },
+   "webhookId": "2e407139-8e3d-4175-850c-45d9c141f986"
+  },
+  {
+   "id": "e3d06302-c4ab-4031-b405-f364324659ed",
+   "name": "Handle content bot",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    520
+   ],
+   "parameters": {
+    "jsCode": "// RixDigi Content bot: Publish / Rewrite / Skip buttons, LinkedIn text replies, and /new /status /pause /resume (Aqib's chat only)\nconst OWNER = Number('YOUR_TELEGRAM_CHAT_ID'); // your own Telegram chat id\nconst store = $getWorkflowStaticData('global');\nconst u = $input.first().json || {};\nconst when = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Karachi', dateStyle: 'short', timeStyle: 'short' });\nconst cq = u.callback_query;\nconst msg = u.message;\nconst drafts = store.drafts || {};\nif (cq) {\n  if (Number(cq.from && cq.from.id) !== OWNER || !cq.message) return [{ json: { kind: 'ignore' } }];\n  const [act, id, v] = String(cq.data || '').split(':');\n  const base = { kind: 'callback', queryId: cq.id, chatId: cq.message.chat.id, messageId: cq.message.message_id, original: String(cq.message.text || '').slice(0, 3600) };\n  const d = drafts[id];\n  if (!d || d.v !== v) return [{ json: { ...base, act: 'none', answer: 'Out of date', status: 'OUT OF DATE: use the newest card for this draft.' } }];\n  if (d.status !== 'waiting') return [{ json: { ...base, act: 'none', answer: 'Already handled', status: `Already handled (${d.status}).` } }];\n  if (act === 'cp') { d.status = 'publishing'; return [{ json: { ...base, act: 'publish', postId: Number(id), answer: 'Publishing', status: `PUBLISHING ${when}…` } }]; }\n  if (act === 'cr') { d.status = 'rewriting'; return [{ json: { ...base, act: 'rewrite', kind: 'rewrite', postId: Number(id), answer: 'Rewriting', status: `REWRITE requested ${when}. A new card follows in a minute.` } }]; }\n  if (act === 'cs') { d.status = 'skipped'; return [{ json: { ...base, act: 'skip', postId: Number(id), answer: 'Skipped', status: `SKIPPED ${when}. The draft was moved to the WordPress bin.` } }]; }\n  return [{ json: { kind: 'ignore' } }];\n}\nif (msg && typeof msg.text === 'string') {\n  if (Number(msg.chat && msg.chat.id) !== OWNER) return [{ json: { kind: 'ignore' } }];\n  const t = msg.text.trim();\n  const rt = msg.reply_to_message && String(msg.reply_to_message.text || '');\n  const m = rt && rt.match(/Ref D(\\d+)/);\n  if (m && !t.startsWith('/')) {\n    const d = drafts[m[1]];\n    if (!d || d.status !== 'waiting') return [{ json: { kind: 'reply', chatId: OWNER, text: 'That draft is no longer waiting, so nothing was changed.' } }];\n    d.linkedin = t;\n    return [{ json: { kind: 'reply', chatId: OWNER, text: 'Got it. This text will be the LinkedIn post when you tap Publish on the card.' } }];\n  }\n  const c = t.toLowerCase();\n  if (c.startsWith('/pause')) { store.paused = true; return [{ json: { kind: 'reply', chatId: OWNER, text: 'Paused. No new drafts until you send /resume.' } }]; }\n  if (c.startsWith('/resume')) { store.paused = false; return [{ json: { kind: 'reply', chatId: OWNER, text: 'Resumed. The next draft comes on the next weekday morning, or send /new.' } }]; }\n  if (c.startsWith('/new')) return [{ json: { kind: 'new', chatId: OWNER, text: 'Writing a new draft now. The card arrives in about a minute.' } }];\n  const ds = Object.values(drafts);\n  const pub = ds.filter((d) => d.status === 'published');\n  return [{ json: { kind: 'reply', chatId: OWNER, text: [`RixDigi Content – contentwritinguk.com (AI & Automation)`, `${store.paused ? 'PAUSED' : 'Running'}: a new draft every weekday at 09:23 (PKT).`, `Waiting for you: ${ds.filter((d) => d.status === 'waiting').length} · published: ${pub.length} · skipped: ${ds.filter((d) => d.status === 'skipped').length}`, pub[0] ? `Latest: ${pub.sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)))[0].link}` : '', '', 'Commands: /new /status /pause /resume'].filter((x) => x !== '').join('\\n') } }];\n}\nreturn [{ json: { kind: 'ignore' } }];\n"
+   }
+  },
+  {
+   "id": "5f3f37f1-e446-4c94-9620-e8a71707a85e",
+   "name": "Button?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    440,
+    520
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "7b2576d5-c89e-42b5-bbc3-01dd520d9189",
+       "leftValue": "={{ [\"callback\", \"rewrite\"].includes($json.kind) }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "371ef54d-e512-46dc-9d9d-2d4c7d7c7bcc",
+   "name": "Telegram – answer tap",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    660,
+    420
+   ],
+   "parameters": {
+    "resource": "callback",
+    "operation": "answerQuery",
+    "queryId": "={{ $json.queryId }}",
+    "additionalFields": {
+     "text": "={{ $json.answer }}"
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "cb8fcefc-f0be-41d7-995a-7726a94e2fc0",
+   "name": "Telegram – update card",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    880,
+    420
+   ],
+   "parameters": {
+    "resource": "message",
+    "operation": "editMessageText",
+    "messageType": "message",
+    "chatId": "={{ $('Handle content bot').first().json.chatId }}",
+    "messageId": "={{ $('Handle content bot').first().json.messageId }}",
+    "text": "={{ $('Handle content bot').first().json.original + '\\n\\n' + $('Handle content bot').first().json.status }}",
+    "replyMarkup": "none",
+    "additionalFields": {
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "177a6771-68bc-453d-9029-91cae4095ec6",
+   "name": "Publish?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1100,
+    420
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "fc383a73-8b06-4d18-ba2f-cc9448573602",
+       "leftValue": "={{ $('Handle content bot').first().json.act === 'publish' }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "8ad277e8-0cc1-4f16-b876-2b77f768b70d",
+   "name": "Rewrite?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1320,
+    520
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "ba61a47d-8550-4147-9acd-c1f62a73e582",
+       "leftValue": "={{ $('Handle content bot').first().json.act === 'rewrite' }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "d02d78e2-685a-4da1-80a1-6328a61c28a1",
+   "name": "Skip?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1540,
+    580
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "56f75df6-c53c-4efc-b3ae-b38a57005888",
+       "leftValue": "={{ $('Handle content bot').first().json.act === 'skip' }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "6b7f2d87-d3c3-4e8f-9dcd-8469881ae2a7",
+   "name": "WP – trash draft",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1760,
+    580
+   ],
+   "parameters": {
+    "method": "DELETE",
+    "url": "=https://contentwritinguk.com/wp-json/wp/v2/posts/{{ $('Handle content bot').first().json.postId }}",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "wordpressApi",
+    "options": {
+     "timeout": 30000
+    }
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "2b9d582d-c200-4da4-bda8-b86366ca374b",
+   "name": "WP – publish",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1320,
+    320
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "=https://contentwritinguk.com/wp-json/wp/v2/posts/{{ $('Handle content bot').first().json.postId }}",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "wordpressApi",
+    "options": {
+     "timeout": 30000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ status: 'publish' }) }}"
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "12da431b-5132-43c9-a43f-023409afa9f1",
+   "name": "Prepare LinkedIn",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1540,
+    320
+   ],
+   "parameters": {
+    "jsCode": "// What goes to LinkedIn: Aqib's approved text + the live article as a link card with the featured image\nconst SITE = 'https://contentwritinguk.com';\nconst CAT = 68;\nconst MEDIA = { analytics: 5059, booking: 5060, chatbot: 5061, ecommerce: 5062, email: 5063, productivity: 5064, seo: 5065, social: 5066, workflow: 5067, writing: 5068 };\nconst IMG = (k) => `${SITE}/wp-content/uploads/2026/11/cwuk-ai-${k}.png`;\nconst store = $getWorkflowStaticData('global');\nconst h = $('Handle content bot').first().json;\nconst d = store.drafts[h.postId];\nconst wp = $input.first().json || {};\nreturn [{ json: { text: d.linkedin, url: wp.link || `${SITE}/?p=${h.postId}`, title: d.title, description: String(d.excerpt || '').slice(0, 200), imageUrl: IMG(d.image), ok: !wp.error && wp.status === 'publish' } }];\n"
+   }
+  },
+  {
+   "id": "32a0f309-88f1-4809-9e42-2a7aa7118280",
+   "name": "Get featured image",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1760,
+    320
+   ],
+   "parameters": {
+    "method": "GET",
+    "url": "={{ $json.imageUrl }}",
+    "authentication": "none",
+    "options": {
+     "timeout": 20000,
+     "response": {
+      "response": {
+       "responseFormat": "file",
+       "outputPropertyName": "data"
+      }
+     }
+    }
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "8eef4f8d-286f-45e3-bb56-accdabf5e203",
+   "name": "LinkedIn – share",
+   "type": "n8n-nodes-base.linkedIn",
+   "typeVersion": 1,
+   "position": [
+    1980,
+    320
+   ],
+   "parameters": {
+    "authentication": "standard",
+    "resource": "post",
+    "operation": "create",
+    "postAs": "person",
+    "person": "YOUR_LINKEDIN_PERSON_ID",
+    "text": "={{ $('Prepare LinkedIn').first().json.text }}",
+    "shareMediaCategory": "ARTICLE",
+    "additionalFields": {
+     "originalUrl": "={{ $('Prepare LinkedIn').first().json.url }}",
+     "title": "={{ $('Prepare LinkedIn').first().json.title }}",
+     "description": "={{ $('Prepare LinkedIn').first().json.description }}",
+     "thumbnailBinaryPropertyName": "data",
+     "visibility": "PUBLIC"
+    }
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "216c4fa4-8071-41a5-b8f4-080d015f7903",
+   "name": "Mark published",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2200,
+    320
+   ],
+   "parameters": {
+    "jsCode": "// Record the publish + LinkedIn result, prepare the calendar rows and the Telegram note\nconst store = $getWorkflowStaticData('global');\nconst h = $('Handle content bot').first().json;\nconst d = store.drafts[h.postId];\nconst wp = $('WP – publish').first().json || {};\nconst li = $('LinkedIn – share').first().json || {};\nif (wp.error || wp.status !== 'publish') {\n  d.status = 'waiting';\n  return [{ json: { ok: false, text: `Publishing failed: ${String((wp.error && (wp.error.message || wp.error.description)) || wp.status || 'unknown').slice(0, 200)}. The draft is still waiting; tap Publish again on the card later.`, rows: [] } }];\n}\nconst liOk = !li.error && (li.urn || li.id || li.success !== false);\nd.status = 'published'; d.link = wp.link; d.publishedAt = new Date().toISOString(); d.linkedinOk = liOk;\nconst uk = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'short', timeStyle: 'short' });\nconst today = new Date().toISOString().slice(0, 10);\nconst rows = [\n  [uk, d.story.title, 'Blog (contentwritinguk.com)', 'Published', today, d.title, String(d.words), wp.link, `D${h.postId}`],\n  [uk, d.story.title, 'LinkedIn', liOk ? 'Published' : 'Failed', today, d.linkedin, String(d.linkedin.length), wp.link, `D${h.postId}`],\n  [uk, d.story.title, 'X', 'Draft', today, d.x, String(d.x.length), wp.link, `D${h.postId}`],\n  [uk, d.story.title, 'Instagram', 'Draft', today, d.ig, String(d.ig.length), wp.link, `D${h.postId}`],\n];\nconst liErr = li.error ? String(li.error.message || li.error.description || li.error).slice(0, 160) : '';\nreturn [{ json: { ok: true, rows, text: `Published: ${wp.link}\\nLinkedIn: ${liOk ? 'posted to your profile' : 'FAILED (' + liErr + ') – copy the text from the card and post it by hand'}.\\nX and Instagram drafts are saved in the content calendar.` } }];\n"
+   }
+  },
+  {
+   "id": "052e823d-525f-4332-8cea-1d6412da6796",
+   "name": "Published OK?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    2420,
+    260
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "629fdb5b-e3ed-452b-abb7-7b81bda8f7de",
+       "leftValue": "={{ $json.ok }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "51d58c6b-f8a7-442c-bf8e-fbad15dcc0ac",
+   "name": "Sheets – content calendar",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2640,
+    220
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://sheets.googleapis.com/v4/spreadsheets/YOUR_SHEET_ID/values/Content%20calendar!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+    "authentication": "predefinedCredentialType",
+    "nodeCredentialType": "googleSheetsOAuth2Api",
+    "options": {
+     "timeout": 30000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ values: $json.rows }) }}"
+   },
+   "onError": "continueRegularOutput"
+  },
+  {
+   "id": "a66ee93b-d458-46bc-9340-43957926cc97",
+   "name": "Telegram – published note",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    2420,
+    400
+   ],
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "={{ $json.text }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "80031483-ba20-4991-8a31-020eb11e671f",
+   "name": "Command?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    660,
+    680
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "4c4a1eff-0c7c-467a-9bb9-a96551d20f4e",
+       "leftValue": "={{ [\"reply\", \"new\"].includes($json.kind) }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "9543752f-2153-4cdf-a47d-ef95edf4cd6b",
+   "name": "Telegram – reply",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    880,
+    680
+   ],
+   "parameters": {
+    "chatId": "={{ $json.chatId }}",
+    "text": "={{ $json.text }}",
+    "additionalFields": {
+     "appendAttribution": false,
+     "disable_web_page_preview": true
+    }
+   },
+   "onError": "continueRegularOutput",
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 2000
+  },
+  {
+   "id": "1f9efa86-d0e1-413b-bc07-56efc4d28e7d",
+   "name": "New draft?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1100,
+    680
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "d11c0777-e9dc-4899-843d-bb0f147ca359",
+       "leftValue": "={{ $('Handle content bot').first().json.kind === 'new' }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   }
+  },
+  {
+   "id": "b3ec4b8e-6265-47aa-a34c-bae7c40120fe",
+   "name": "About",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -60,
+    -300
+   ],
+   "parameters": {
+    "width": 1700,
+    "height": 220,
+    "color": 6,
+    "content": "## AI content auto-publisher – contentwritinguk.com (private)\nWeekdays 09:23 PKT (or /new in the RixDigi Content bot): 5 news feeds → fresh, relevant stories only (no repeats) → Gemini picks the most useful story for small businesses + the matching featured image (10 branded illustrations in the WP media library) → reads the source article → Gemini writes an original 700–950 word post (British English, facts only from the source, sources listed, AI-assisted note) + SEO title/description (Rank Math) + LinkedIn, X and Instagram drafts → saved as a WordPress DRAFT in 'AI & Automation' → Telegram card with preview link: Publish now / Rewrite / Skip; reply to replace the LinkedIn text.\nPublish: WordPress post goes live → LinkedIn post on Aqib's profile (link card + image) → rows in the Content calendar sheet. Nothing goes live without Aqib's tap."
+   }
+  }
+ ],
+ "connections": {
+  "Feed – Google News (AI marketing)": {
+   "main": [
+    [
+     {
+      "node": "Feed – Google News (automation)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Feed – Google News (automation)": {
+   "main": [
+    [
+     {
+      "node": "Feed – Zapier blog",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Feed – Zapier blog": {
+   "main": [
+    [
+     {
+      "node": "Feed – HubSpot marketing",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Feed – HubSpot marketing": {
+   "main": [
+    [
+     {
+      "node": "Feed – Search Engine Journal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Draft OK?": {
+   "main": [
+    [
+     {
+      "node": "Feed – Google News (AI marketing)",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Tell Aqib why?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Tell Aqib why?": {
+   "main": [
+    [
+     {
+      "node": "Telegram – not drafting",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Feed – Search Engine Journal": {
+   "main": [
+    [
+     {
+      "node": "Pick candidates",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Weekdays 09:23 (PKT)": {
+   "main": [
+    [
+     {
+      "node": "Should we draft?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Draft now (private)": {
+   "main": [
+    [
+     {
+      "node": "Should we draft?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Should we draft?": {
+   "main": [
+    [
+     {
+      "node": "Draft OK?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Pick candidates": {
+   "main": [
+    [
+     {
+      "node": "Any stories?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini – pick story": {
+   "main": [
+    [
+     {
+      "node": "Read pick",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read pick": {
+   "main": [
+    [
+     {
+      "node": "Fetch the article?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch article": {
+   "main": [
+    [
+     {
+      "node": "Writer prompt",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Writer prompt": {
+   "main": [
+    [
+     {
+      "node": "Gemini – write post",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini – write post": {
+   "main": [
+    [
+     {
+      "node": "Written?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini – write post (backup)": {
+   "main": [
+    [
+     {
+      "node": "Assemble post",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Assemble post": {
+   "main": [
+    [
+     {
+      "node": "Article OK?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "WP – save draft": {
+   "main": [
+    [
+     {
+      "node": "Rank Math – SEO fields",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Rank Math – SEO fields": {
+   "main": [
+    [
+     {
+      "node": "Save draft",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save draft": {
+   "main": [
+    [
+     {
+      "node": "Saved?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Telegram – image": {
+   "main": [
+    [
+     {
+      "node": "Telegram – approval card",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Any stories?": {
+   "main": [
+    [
+     {
+      "node": "Gemini – pick story",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Telegram – no stories",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch the article?": {
+   "main": [
+    [
+     {
+      "node": "Fetch article",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Writer prompt",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Written?": {
+   "main": [
+    [
+     {
+      "node": "Assemble post",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Gemini – write post (backup)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Article OK?": {
+   "main": [
+    [
+     {
+      "node": "WP – save draft",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Telegram – writing failed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Saved?": {
+   "main": [
+    [
+     {
+      "node": "Telegram – image",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Telegram – save failed",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Content bot – buttons and commands": {
+   "main": [
+    [
+     {
+      "node": "Handle content bot",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Handle content bot": {
+   "main": [
+    [
+     {
+      "node": "Button?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Telegram – answer tap": {
+   "main": [
+    [
+     {
+      "node": "Telegram – update card",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Telegram – update card": {
+   "main": [
+    [
+     {
+      "node": "Publish?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "WP – publish": {
+   "main": [
+    [
+     {
+      "node": "Prepare LinkedIn",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prepare LinkedIn": {
+   "main": [
+    [
+     {
+      "node": "Get featured image",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get featured image": {
+   "main": [
+    [
+     {
+      "node": "LinkedIn – share",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "LinkedIn – share": {
+   "main": [
+    [
+     {
+      "node": "Mark published",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Mark published": {
+   "main": [
+    [
+     {
+      "node": "Published OK?",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Telegram – published note",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Telegram – reply": {
+   "main": [
+    [
+     {
+      "node": "New draft?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Button?": {
+   "main": [
+    [
+     {
+      "node": "Telegram – answer tap",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Command?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Publish?": {
+   "main": [
+    [
+     {
+      "node": "WP – publish",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Rewrite?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Rewrite?": {
+   "main": [
+    [
+     {
+      "node": "Writer prompt",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Skip?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Skip?": {
+   "main": [
+    [
+     {
+      "node": "WP – trash draft",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Published OK?": {
+   "main": [
+    [
+     {
+      "node": "Sheets – content calendar",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Command?": {
+   "main": [
+    [
+     {
+      "node": "Telegram – reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "New draft?": {
+   "main": [
+    [
+     {
+      "node": "Should we draft?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveDataSuccessExecution": "none",
+  "saveDataErrorExecution": "all",
+  "saveManualExecutions": false
+ }
+}
